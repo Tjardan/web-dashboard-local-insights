@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SYS://NEXUS — Data Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cyan: #00f5ff;
+    --magenta: #ff00aa;
+    --yellow: #ffe600;
+    --green: #00ff88;
+    --red: #ff2244;
+    --bg: #030810;
+    --bg2: #060e1a;
+    --bg3: #0a1628;
+    --panel: #0d1e35;
+    --border: rgba(0,245,255,0.2);
+    --border-hot: rgba(0,245,255,0.7);
+    --text: #a8cce0;
+    --text-dim: #3d6070;
+    --scanline-opacity: 0.025;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: crosshair;
+  }
+
+  /* Scanlines overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,var(--scanline-opacity)) 2px,
+      rgba(0,0,0,var(--scanline-opacity)) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* CRT vignette */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.7) 100%);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ---- HEADER ---- */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding: 12px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(90deg, var(--bg2), var(--bg));
+    position: relative;
+    overflow: hidden;
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--magenta), transparent);
+    animation: slide-right 4s linear infinite;
+  }
+  @keyframes slide-right {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+
+  .logo {
+    font-family: 'Orbitron', monospace;
+    font-weight: 900;
+    font-size: 18px;
+    letter-spacing: 4px;
+    color: var(--cyan);
+    text-shadow: 0 0 12px var(--cyan), 0 0 30px rgba(0,245,255,0.3);
+    animation: flicker 6s infinite;
+  }
+  @keyframes flicker {
+    0%, 95%, 100% { opacity: 1; }
+    96% { opacity: 0.6; }
+    97% { opacity: 1; }
+    98% { opacity: 0.4; }
+  }
+
+  .header-meta {
+    display: flex; gap: 24px; align-items: center;
+    font-size: 11px; color: var(--text-dim); letter-spacing: 1px;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    display: inline-block;
+    margin-right: 5px;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* ---- LAYOUT ---- */
+  .terminal {
+    max-width: 960px;
+    margin: 40px auto;
+    padding: 0 24px 80px;
+  }
+
+  .sys-prompt {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    margin-bottom: 28px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(0,245,255,0.05);
+  }
+  .sys-prompt span { color: var(--cyan); }
+
+  .section-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin: 36px 0 14px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
+  }
+
+  /* ---- NODE TREE (layer 1 entries) ---- */
+  .node {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    margin-bottom: 6px;
+    position: relative;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    overflow: hidden;
+  }
+  .node::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--cyan);
+    box-shadow: 0 0 10px var(--cyan);
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  }
+  .node:hover::before,
+  .node.open::before { transform: scaleY(1); }
+  .node:hover { border-color: var(--border-hot); box-shadow: 0 0 20px rgba(0,245,255,0.06), inset 0 0 20px rgba(0,245,255,0.02); }
+  .node.open { border-color: rgba(0,245,255,0.4); box-shadow: 0 0 30px rgba(0,245,255,0.08); }
+
+  /* Horizontal scan on hover */
+  .node::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; right: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0,245,255,0.03), transparent);
+    transition: none;
+  }
+  .node:hover::after {
+    animation: h-scan 0.6s ease forwards;
+  }
+  @keyframes h-scan {
+    from { left: -100%; right: 100%; }
+    to { left: 100%; right: -100%; }
+  }
+
+  .node-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px 18px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .node-id {
+    font-size: 10px;
+    color: var(--text-dim);
+    min-width: 52px;
+    letter-spacing: 1px;
+  }
+
+  .node-icon {
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--cyan);
+    transition: all 0.25s;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .node.open .node-icon {
+    background: rgba(0,245,255,0.1);
+    border-color: var(--cyan);
+    box-shadow: 0 0 8px rgba(0,245,255,0.4);
+    transform: rotate(45deg);
+  }
+
+  .node-label {
+    flex: 1;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: #c8dfe8;
+    transition: color 0.2s;
+  }
+  .node:hover .node-label,
+  .node.open .node-label { color: #fff; }
+
+  .node-tags {
+    display: flex; gap: 6px;
+  }
+  .tag {
+    font-size: 9px;
+    letter-spacing: 2px;
+    padding: 2px 7px;
+    border: 1px solid;
+    text-transform: uppercase;
+  }
+  .tag-cyan { color: var(--cyan); border-color: rgba(0,245,255,0.3); background: rgba(0,245,255,0.04); }
+  .tag-mag  { color: var(--magenta); border-color: rgba(255,0,170,0.3); background: rgba(255,0,170,0.04); }
+  .tag-grn  { color: var(--green); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.04); }
+  .tag-ylw  { color: var(--yellow); border-color: rgba(255,230,0,0.3); background: rgba(255,230,0,0.04); }
+  .tag-red  { color: var(--red); border-color: rgba(255,34,68,0.3); background: rgba(255,34,68,0.04); }
+
+  .node-chevron {
+    color: var(--text-dim);
+    font-size: 10px;
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), color 0.2s;
+    flex-shrink: 0;
+  }
+  .node.open .node-chevron { transform: rotate(180deg); color: var(--cyan); }
+
+  /* ---- BODY (level 1 expand) ---- */
+  .node-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.35s cubic-bezier(0.4,0,0.2,1);
+  }
+  .node.open .node-body { grid-template-rows: 1fr; }
+  .node-body-inner {
+    overflow: hidden;
+  }
+  .node-content {
+    padding: 0 18px 18px 52px;
+    border-top: 1px solid rgba(0,245,255,0.07);
+  }
+
+  .node-desc {
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text);
+    margin: 14px 0 16px;
+    padding-left: 14px;
+    border-left: 2px solid rgba(0,245,255,0.15);
+  }
+
+  /* ---- SUBLAYERS (layer 2) ---- */
+  .sublayers {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-bottom: 14px;
+  }
+
+  .sublayer {
+    border: 1px solid rgba(0,245,255,0.08);
+    background: rgba(3,8,16,0.6);
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .sublayer:hover { border-color: rgba(255,0,170,0.3); }
+  .sublayer.open { border-color: rgba(255,0,170,0.4); }
+
+  .sublayer-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sublayer-bullet {
+    width: 5px; height: 5px;
+    border: 1px solid var(--magenta);
+    transform: rotate(45deg);
+    flex-shrink: 0;
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .sublayer.open .sublayer-bullet {
+    background: var(--magenta);
+    box-shadow: 0 0 8px var(--magenta);
+  }
+  .sublayer-label {
+    font-size: 12px;
+    color: #8aa8b8;
+    flex: 1;
+    letter-spacing: 0.5px;
+    transition: color 0.2s;
+  }
+  .sublayer:hover .sublayer-label,
+  .sublayer.open .sublayer-label { color: #dde; }
+
+  .sublayer-count {
+    font-size: 10px;
+    color: var(--magenta);
+    opacity: 0.7;
+  }
+
+  .sublayer-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.28s ease;
+  }
+  .sublayer.open .sublayer-body { grid-template-rows: 1fr; }
+  .sublayer-body-inner { overflow: hidden; }
+
+  .sublayer-content {
+    padding: 8px 14px 14px 29px;
+    border-top: 1px solid rgba(255,0,170,0.06);
+  }
+
+  /* ---- DATA CELLS (layer 3) ---- */
+  .data-cells {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .data-cell {
+    background: rgba(0,245,255,0.02);
+    border: 1px solid rgba(0,245,255,0.07);
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .data-cell:hover {
+    background: rgba(0,245,255,0.05);
+    border-color: rgba(0,245,255,0.3);
+  }
+  .data-cell.active {
+    background: rgba(0,245,255,0.06);
+    border-color: var(--cyan);
+    box-shadow: 0 0 12px rgba(0,245,255,0.15);
+  }
+  .data-cell-key {
+    font-size: 9px; letter-spacing: 2px;
+    color: var(--text-dim); text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .data-cell-val {
+    font-size: 13px;
+    color: #cde;
+    font-family: 'Share Tech Mono', monospace;
+  }
+  .data-cell.active .data-cell-val { color: var(--cyan); }
+
+  /* Detail popout (layer 4 — inline reveal) */
+  .cell-detail {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.3s ease;
+    margin-top: 4px;
+  }
+  .data-cell.active .cell-detail { grid-template-rows: 1fr; }
+  .cell-detail-inner { overflow: hidden; }
+  .cell-detail-text {
+    font-size: 10px;
+    line-height: 1.7;
+    color: rgba(0,245,255,0.6);
+    margin-top: 4px;
+    border-top: 1px solid rgba(0,245,255,0.1);
+    padding-top: 5px;
+  }
+
+  /* ---- LOG LINE ---- */
+  .log-block {
+    margin-top: 14px;
+  }
+  .log-line {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 2;
+    letter-spacing: 0.5px;
+  }
+  .log-line .ts { color: rgba(0,245,255,0.35); margin-right: 10px; }
+  .log-line .ev { margin-right: 8px; }
+  .log-line .ev-ok { color: var(--green); }
+  .log-line .ev-warn { color: var(--yellow); }
+  .log-line .ev-err { color: var(--red); }
+
+  /* ---- PROGRESS BAR ---- */
+  .progress-row {
+    display: flex; align-items: center; gap: 12px;
+    margin: 6px 0;
+  }
+  .progress-label { font-size: 10px; color: var(--text-dim); min-width: 90px; letter-spacing: 1px; }
+  .progress-track {
+    flex: 1; height: 3px;
+    background: rgba(0,245,255,0.06);
+    position: relative; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta));
+    box-shadow: 0 0 8px var(--cyan);
+    position: relative;
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+  }
+  .progress-val { font-size: 10px; color: var(--cyan); min-width: 30px; text-align: right; }
+
+  /* ---- GLITCH decorative text ---- */
+  .glitch-label {
+    font-family: 'Orbitron', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: rgba(0,245,255,0.15);
+    text-transform: uppercase;
+    user-select: none;
+    margin: 0 0 4px;
+  }
+
+  /* FOOTER */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 10px 28px;
+    display: flex; justify-content: space-between;
+    font-size: 9px; color: var(--text-dim); letter-spacing: 2px;
+    background: var(--bg2);
+    position: fixed; bottom: 0; left: 0; right: 0;
+  }
+  .footer .blink {
+    animation: blink 1.2s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Corner decorations */
+  .corner-deco {
+    position: absolute;
+    width: 14px; height: 14px;
+    border-color: rgba(0,245,255,0.5);
+    border-style: solid;
+    pointer-events: none;
+  }
+  .corner-deco.tl { top: 0; left: 0; border-width: 2px 0 0 2px; }
+  .corner-deco.tr { top: 0; right: 0; border-width: 2px 2px 0 0; }
+  .corner-deco.bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; }
+  .corner-deco.br { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  /* Animated wipe-in for new content */
+  @keyframes wipe-down {
+    from { clip-path: inset(0 0 100% 0); opacity: 0; }
+    to { clip-path: inset(0 0 0% 0); opacity: 1; }
+  }
+  .node.open .node-content { animation: wipe-down 0.3s ease forwards; }
+
+  /* Node entry animation */
+  @keyframes node-enter {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .node { animation: node-enter 0.4s ease backwards; }
+  .node:nth-child(1) { animation-delay: 0.1s; }
+  .node:nth-child(2) { animation-delay: 0.2s; }
+  .node:nth-child(3) { animation-delay: 0.3s; }
+  .node:nth-child(4) { animation-delay: 0.4s; }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">SYS://NEXUS</div>
+  <div class="header-meta">
+    <span><span class="status-dot"></span>UPLINK ACTIVE</span>
+    <span>NODE_ID: 0x4F2A</span>
+    <span id="clock">--:--:--</span>
+  </div>
+</header>
+
+<main class="terminal">
+  <div class="sys-prompt">
+    <span>$</span> query --db NEXUS_CORE --filter classification=TOP_SECRET --expand all
+  </div>
+
+  <div class="section-title">CLASSIFIED INTEL — SECTOR 7</div>
+
+  <!-- NODE 1 -->
+  <div class="node" id="node-1">
+    <div class="corner-deco tl"></div><div class="corner-deco tr"></div>
+    <div class="corner-deco bl"></div><div class="corner-deco br"></div>
+    <div class="node-header" onclick="toggleNode('node-1')">
+      <span class="node-id">0x001</span>
+      <div class="node-icon">+</div>
+      <div class="node-label">OPERATION GHOSTLIGHT</div>
+      <div class="node-tags">
+        <span class="tag tag-red">CRITICAL</span>
+        <span class="tag tag-cyan">ACTIVE</span>
+      </div>
+      <div class="node-chevron">▼</div>
+    </div>
+    <div class="node-body">
+      <div class="node-body-inner">
+        <div class="node-content">
+          <p class="node-desc">Covert infiltration of the Helios Corporation data lattice. Multi-vector approach involving simultaneous neural-network spoofing, social-layer penetration, and hardline bridge exploitation. Timeline: 72hr operational window before automated countermeasures trigger.</p>
+
+          <div class="glitch-label">// PROGRESS METRICS</div>
+          <div class="progress-row"><span class="progress-label">INFILTRATION</span><div class="progress-track"><div class="progress-fill" style="width:78%"></div></div><span class="progress-val">78%</span></div>
+          <div class="progress-row"><span class="progress-label">COVER INTACT</span><div class="progress-track"><div class="progress-fill" style="width:91%"></div></div><span class="progress-val">91%</span></div>
+          <div class="progress-row"><span class="progress-label">DATA EXTRACTED</span><div class="progress-track"><div class="progress-fill" style="width:44%"></div></div><span class="progress-val">44%</span></div>
+
+          <br>
+          <div class="glitch-label">// SUBLAYER MODULES</div>
+          <div class="sublayers">
+
+            <div class="sublayer" id="sub-1a">
+              <div class="sublayer-header" onclick="toggleSub('sub-1a')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">NEURAL SPOOF PROTOCOL — Layer 2 Auth Bypass</span>
+                <span class="sublayer-count">3 ENTRIES</span>
+              </div>
+              <div class="sublayer-body">
+                <div class="sublayer-body-inner">
+                  <div class="sublayer-content">
+                    <div class="data-cells">
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">VECTOR</div>
+                        <div class="data-cell-val">SYNAPSE-7</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Cognitive bridge exploit targeting layer-7 authentication handshake. Injects false neural signature during biometric scan window (12ms).</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">LATENCY</div>
+                        <div class="data-cell-val">0.004ms</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Below detection threshold of Helios countermeasure daemon v4.2. Must stay under 0.01ms or trip auto-lockout.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">STATUS</div>
+                        <div class="data-cell-val">NOMINAL</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">All injection nodes reporting green. No anomalies detected in last 4hr sweep cycle.</div></div></div>
+                      </div>
+                    </div>
+                    <div class="log-block">
+                      <div class="log-line"><span class="ts">03:42:11</span><span class="ev ev-ok">[OK]</span> Spoof signature injected successfully</div>
+                      <div class="log-line"><span class="ts">03:44:55</span><span class="ev ev-warn">[WARN]</span> Secondary auth ping detected — holding position</div>
+                      <div class="log-line"><span class="ts">03:45:01</span><span class="ev ev-ok">[OK]</span> Ping resolved, continuing extraction</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sublayer" id="sub-1b">
+              <div class="sublayer-header" onclick="toggleSub('sub-1b')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">SOCIAL LAYER PENETRATION — Human Vector</span>
+                <span class="sublayer-count">2 ENTRIES</span>
+              </div>
+              <div class="sublayer-body">
+                <div class="sublayer-body-inner">
+                  <div class="sublayer-content">
+                    <div class="data-cells">
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">ASSET</div>
+                        <div class="data-cell-val">K. VOSS</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Level-4 Helios sysadmin. Compromised via deepfake executive directive. Access window: weekdays 09:00-17:00.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">RELIABILITY</div>
+                        <div class="data-cell-val">87.3%</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Elevated from 74% after successful dry run on 02/28. Psychological profile confirms compliance under authority pressure.</div></div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NODE 2 -->
+  <div class="node" id="node-2">
+    <div class="corner-deco tl"></div><div class="corner-deco tr"></div>
+    <div class="corner-deco bl"></div><div class="corner-deco br"></div>
+    <div class="node-header" onclick="toggleNode('node-2')">
+      <span class="node-id">0x002</span>
+      <div class="node-icon">+</div>
+      <div class="node-label">SYNTHETIC AGENT ROSTER</div>
+      <div class="node-tags">
+        <span class="tag tag-mag">CLASSIFIED</span>
+        <span class="tag tag-grn">7 ONLINE</span>
+      </div>
+      <div class="node-chevron">▼</div>
+    </div>
+    <div class="node-body">
+      <div class="node-body-inner">
+        <div class="node-content">
+          <p class="node-desc">Active synthetic identities deployed across the Mesh. Each agent maintains a full legend stack — biometric, social graph, financial trail. Rotating behavioral models prevent pattern-match detection by Helios AI sentinels.</p>
+
+          <div class="glitch-label">// AGENT PROFILES</div>
+          <div class="sublayers">
+
+            <div class="sublayer" id="sub-2a">
+              <div class="sublayer-header" onclick="toggleSub('sub-2a')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">ECHO-4 "MIRA TANAKA" — Primary Infiltrator</span>
+                <span class="sublayer-count">CLEARANCE LVL 8</span>
+              </div>
+              <div class="sublayer-body">
+                <div class="sublayer-body-inner">
+                  <div class="sublayer-content">
+                    <div class="data-cells">
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">COVER</div>
+                        <div class="data-cell-val">EXEC AUDITOR</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Planted as external compliance auditor. Helios legal team verified legend — no flags raised. Six weeks in-building access remaining.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">MESH ID</div>
+                        <div class="data-cell-val">0xE4-FF23</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Subdermal implant broadcasting standard civilian mesh signature. Updated daily via secure OTA push.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">RISK SCORE</div>
+                        <div class="data-cell-val">LOW 1.2</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Helios sentinel threat model rates this profile at 1.2/10. Behavioral drift within acceptable thresholds.</div></div></div>
+                      </div>
+                    </div>
+                    <div class="progress-row"><span class="progress-label">LEGEND INTEGRITY</span><div class="progress-track"><div class="progress-fill" style="width:96%"></div></div><span class="progress-val">96%</span></div>
+                    <div class="progress-row"><span class="progress-label">OBJECTIVE COMPLETE</span><div class="progress-track"><div class="progress-fill" style="width:61%"></div></div><span class="progress-val">61%</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="sublayer" id="sub-2b">
+              <div class="sublayer-header" onclick="toggleSub('sub-2b')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">ECHO-7 "DMITRI VASEV" — Backup Asset</span>
+                <span class="sublayer-count">STANDBY</span>
+              </div>
+              <div class="sublayer-body">
+                <div class="sublayer-body-inner">
+                  <div class="sublayer-content">
+                    <div class="data-cells">
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">STATUS</div>
+                        <div class="data-cell-val">STANDBY</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Activated only if ECHO-4 is burned. Has separate legend with no cross-contamination. Extraction route pre-mapped.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">ACTIVATION T</div>
+                        <div class="data-cell-val">&lt; 4HR</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Can be in-building within 4 hours of alert. Cover story: hardware maintenance contractor.</div></div></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NODE 3 -->
+  <div class="node" id="node-3">
+    <div class="corner-deco tl"></div><div class="corner-deco tr"></div>
+    <div class="corner-deco bl"></div><div class="corner-deco br"></div>
+    <div class="node-header" onclick="toggleNode('node-3')">
+      <span class="node-id">0x003</span>
+      <div class="node-icon">+</div>
+      <div class="node-label">NETWORK TOPOLOGY MAP</div>
+      <div class="node-tags">
+        <span class="tag tag-ylw">UPDATED 04:12</span>
+        <span class="tag tag-cyan">REALTIME</span>
+      </div>
+      <div class="node-chevron">▼</div>
+    </div>
+    <div class="node-body">
+      <div class="node-body-inner">
+        <div class="node-content">
+          <p class="node-desc">Live-mapped network graph of Helios internal segments. Six isolated subnets identified. Airgapped research cluster on Subnet-4 remains the primary target. Three bridging vectors possible.</p>
+
+          <div class="glitch-label">// SUBNET INDEX</div>
+          <div class="sublayers">
+            <div class="sublayer" id="sub-3a">
+              <div class="sublayer-header" onclick="toggleSub('sub-3a')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">SUBNET-4 — Research Airgap Cluster</span>
+                <span class="sublayer-count">TARGET</span>
+              </div>
+              <div class="sublayer-body">
+                <div class="sublayer-body-inner">
+                  <div class="sublayer-content">
+                    <div class="data-cells">
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">IP RANGE</div>
+                        <div class="data-cell-val">10.4.0.0/16</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Physical isolation enforced. No inbound routes. Outbound only via secure proxy node at 10.4.0.1 with hardware key auth.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">BRIDGE VECTOR</div>
+                        <div class="data-cell-val">USB EXFIL</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">ECHO-4 has physical access to one workstation on this subnet. Pre-loaded exfil device awaits activation on Day 3.</div></div></div>
+                      </div>
+                      <div class="data-cell" onclick="toggleCell(this)">
+                        <div class="data-cell-key">GUARD CYCLE</div>
+                        <div class="data-cell-val">18MIN</div>
+                        <div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Physical patrol cycle is 18 minutes. Insertion window: minutes 7–12. Confirmed via 9-day observation log.</div></div></div>
+                      </div>
+                    </div>
+                    <div class="log-block">
+                      <div class="log-line"><span class="ts">04:00:00</span><span class="ev ev-ok">[SCAN]</span> Subnet-4 topology refresh complete — 24 hosts mapped</div>
+                      <div class="log-line"><span class="ts">04:01:33</span><span class="ev ev-warn">[ALERT]</span> Patch daemon active on 10.4.0.88 — avoid</div>
+                      <div class="log-line"><span class="ts">04:11:59</span><span class="ev ev-err">[ERR]</span> Probe blocked on 10.4.0.12 — IDS signature updated</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NODE 4 -->
+  <div class="node" id="node-4">
+    <div class="corner-deco tl"></div><div class="corner-deco tr"></div>
+    <div class="corner-deco bl"></div><div class="corner-deco br"></div>
+    <div class="node-header" onclick="toggleNode('node-4')">
+      <span class="node-id">0x004</span>
+      <div class="node-icon">+</div>
+      <div class="node-label">CONTINGENCY PROTOCOLS</div>
+      <div class="node-tags">
+        <span class="tag tag-red">BURN NOTICE</span>
+        <span class="tag tag-mag">SEALED</span>
+      </div>
+      <div class="node-chevron">▼</div>
+    </div>
+    <div class="node-body">
+      <div class="node-body-inner">
+        <div class="node-content">
+          <p class="node-desc">Escalation and abort procedures. If operation integrity drops below 60% or an asset is compromised, these protocols activate in sequence. All contingencies are automated except Omega-4 which requires director authorization.</p>
+
+          <div class="glitch-label">// PROTOCOL STACK</div>
+          <div class="sublayers">
+            <div class="sublayer" id="sub-4a">
+              <div class="sublayer-header" onclick="toggleSub('sub-4a')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">ALPHA — Graceful Withdrawal</span>
+                <span class="sublayer-count">AUTO</span>
+              </div>
+              <div class="sublayer-body"><div class="sublayer-body-inner"><div class="sublayer-content">
+                <div class="data-cells">
+                  <div class="data-cell" onclick="toggleCell(this)"><div class="data-cell-key">TRIGGER</div><div class="data-cell-val">INTEGRITY &lt;80%</div><div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Agents move to passive mode, no further data extraction. Assets begin natural cover story wind-down over 2 weeks.</div></div></div></div>
+                  <div class="data-cell" onclick="toggleCell(this)"><div class="data-cell-key">DURATION</div><div class="data-cell-val">14 DAYS</div><div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Slow extraction minimizes suspicion. All digital traces scrubbed using Lazarus wiper v3.</div></div></div></div>
+                </div>
+              </div></div></div>
+            </div>
+            <div class="sublayer" id="sub-4b">
+              <div class="sublayer-header" onclick="toggleSub('sub-4b')">
+                <div class="sublayer-bullet"></div>
+                <span class="sublayer-label">OMEGA-4 — Full Blackout (Director Auth Required)</span>
+                <span class="sublayer-count">MANUAL</span>
+              </div>
+              <div class="sublayer-body"><div class="sublayer-body-inner"><div class="sublayer-content">
+                <div class="data-cells">
+                  <div class="data-cell" onclick="toggleCell(this)"><div class="data-cell-key">TRIGGER</div><div class="data-cell-val">ASSET BURNED</div><div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Immediate full abort. All legends killed, exfil routes collapsed. 30-second window to clear the building.</div></div></div></div>
+                  <div class="data-cell" onclick="toggleCell(this)"><div class="data-cell-key">ZERO TRACE</div><div class="data-cell-val">YES</div><div class="cell-detail"><div class="cell-detail-inner"><div class="cell-detail-text">Phantom-7 killswitch wipes all operation data from Nexus servers. Recovery time: 6 months minimum.</div></div></div></div>
+                </div>
+              </div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <span>SYS://NEXUS v4.1.2 — ENCRYPTED CHANNEL ACTIVE</span>
+  <span>OPERATOR: [REDACTED] <span class="blink">█</span></span>
+</footer>
+
+<script>
+  function toggleNode(id) {
+    const node = document.getElementById(id);
+    node.classList.toggle('open');
+  }
+  function toggleSub(id) {
+    const sub = document.getElementById(id);
+    sub.classList.toggle('open');
+  }
+  function toggleCell(cell) {
+    const wasActive = cell.classList.contains('active');
+    const parent = cell.closest('.data-cells');
+    parent.querySelectorAll('.data-cell').forEach(c => c.classList.remove('active'));
+    if (!wasActive) cell.classList.add('active');
+  }
+
+  // Live clock
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toTimeString().slice(0,8);
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // Auto-open first node on load
+  setTimeout(() => toggleNode('node-1'), 600);
+  setTimeout(() => toggleSub('sub-1a'), 900);
+</script>
+</body>
+</html>
