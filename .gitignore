@@ -7,6 +7,9 @@ node_modules/
 dist/
 dist-ssr/
 
+# DevPulse server-side file cache
+.devpulse-cache/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

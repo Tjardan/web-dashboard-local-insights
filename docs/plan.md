@@ -102,11 +102,12 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 - [ ] npm install en dev server validatie
 
 ### Fase 2 — MCP Integratie
-- [ ] Git Commit connector via GitHub MCP (`mcp_github_*`)
-- [ ] VS Code Chat History connector via chat history MCP (`mcp_vscode-chat-h_*`)
-- [ ] File Change connector via git diff parsing
-- [ ] Project auto-discovery vanuit root folders (filesystem scan)
-- [ ] Real data in alle views
+- [x] Git Commit connector via local git log (Vite API plugin)
+- [x] File Change connector via git log --name-status (Vite API plugin)
+- [x] Project auto-discovery vanuit root folders (Vite dev server middleware)
+- [x] VS Code Chat History connector via @devpulse/chat-mcp workspace package
+- [x] Monorepo structuur: packages/chat-mcp als gedeeld workspace package
+- [x] Real data in alle views
 
 ### Fase 3 — Polish & UX
 - [ ] Animated neon tile entrance effects (staggered)
