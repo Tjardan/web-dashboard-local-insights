@@ -81,16 +81,31 @@ function sendError(
   sendJson(res, { error: message }, status);
 }
 
-/** Parse `git log --format=%H§§§%an§§§%aI§§§%s` output into commit objects. */
+/** Parse `git log --format=%H§§§%an§§§%aI§§§%s --name-status` output into commit objects (with file list). */
 function parseGitLog(raw: string, sep: string) {
-  return raw
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [sha, author, date, ...msgParts] = line.split(sep);
-      return { sha, author, date, message: msgParts.join(sep) };
-    });
+  type Commit = {
+    sha: string;
+    author: string;
+    date: string;
+    message: string;
+    files: { status: string; path: string }[];
+  };
+  const commits: Commit[] = [];
+  let cur: Commit | null = null;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes(sep)) {
+      if (cur) commits.push(cur);
+      const [sha, author, date, ...msgParts] = trimmed.split(sep);
+      cur = { sha, author, date, message: msgParts.join(sep), files: [] };
+    } else {
+      const m = trimmed.match(/^([AMDRC])\t(.+)$/);
+      if (m && cur) cur.files.push({ status: m[1], path: m[2] });
+    }
+  }
+  if (cur) commits.push(cur);
+  return commits;
 }
 
 export function devPulseApiPlugin(): Plugin {
@@ -185,7 +200,13 @@ export function devPulseApiPlugin(): Plugin {
             if (since) {
               const out = await exec(
                 "git",
-                ["log", `--after=${since}`, `--format=${format}`, "--no-merges"],
+                [
+                  "log",
+                  `--after=${since}`,
+                  `--format=${format}`,
+                  "--no-merges",
+                  "--name-status",
+                ],
                 normalizedPath,
               );
               return sendJson(res, parseGitLog(out, sep));
@@ -200,7 +221,13 @@ export function devPulseApiPlugin(): Plugin {
 
             const out = await exec(
               "git",
-              ["log", `--max-count=${limit}`, `--format=${format}`, "--no-merges"],
+              [
+                "log",
+                `--max-count=${limit}`,
+                `--format=${format}`,
+                "--no-merges",
+                "--name-status",
+              ],
               normalizedPath,
             );
             const commits = parseGitLog(out, sep);
@@ -210,91 +237,6 @@ export function devPulseApiPlugin(): Plugin {
             return sendError(
               res,
               `git log failed: ${(err as Error).message}`,
-              500,
-            );
-          }
-        }
-
-        // ── Git file changes (recent) ─────────────────────
-        if (url.pathname === "/api/git-file-changes") {
-          const projectPath = url.searchParams.get("path");
-          const since = url.searchParams.get("since"); // ISO timestamp — incremental mode
-          const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
-          if (!projectPath) return sendError(res, "Missing path parameter");
-
-          try {
-            const normalizedPath = normalize(projectPath);
-            const sep = "§§§";
-            const format = [`%H`, `%aI`, `%s`].join(sep);
-
-            interface FileChange {
-              id: string;
-              commitSha: string;
-              date: string;
-              status: string;
-              filePath: string;
-              commitMessage: string;
-            }
-
-            function parseFileChanges(out: string): FileChange[] {
-              const changes: FileChange[] = [];
-              let currentSha = "";
-              let currentDate = "";
-              let currentMessage = "";
-
-              for (const line of out.split("\n")) {
-                if (!line.trim()) continue;
-                if (line.includes(sep)) {
-                  const parts = line.split(sep);
-                  currentSha = parts[0];
-                  currentDate = parts[1];
-                  currentMessage = parts.slice(2).join(sep);
-                  continue;
-                }
-                const match = line.match(/^([AMDRC])\t(.+)$/);
-                if (match && currentSha) {
-                  changes.push({
-                    id: `${currentSha}-${match[2]}`,
-                    commitSha: currentSha,
-                    date: currentDate,
-                    status: match[1],
-                    filePath: match[2],
-                    commitMessage: currentMessage,
-                  });
-                }
-              }
-              return changes;
-            }
-
-            // Incremental: only changes after `since`
-            if (since) {
-              const out = await exec(
-                "git",
-                ["log", `--after=${since}`, `--format=${format}`, "--name-status"],
-                normalizedPath,
-              );
-              return sendJson(res, parseFileChanges(out));
-            }
-
-            // Full fetch — use server cache (TTL 5 min)
-            const ck = `git-file-changes:${normalizedPath}`;
-            const cached = cacheRead<FileChange[]>(ck);
-            if (cached && isCacheFresh(cached, 300)) {
-              return sendJson(res, cached.data);
-            }
-
-            const out = await exec(
-              "git",
-              ["log", `--max-count=${limit}`, `--format=${format}`, "--name-status"],
-              normalizedPath,
-            );
-            const changes = parseFileChanges(out);
-            cacheWrite(ck, changes);
-            return sendJson(res, changes);
-          } catch (err) {
-            return sendError(
-              res,
-              `git file-changes failed: ${(err as Error).message}`,
               500,
             );
           }
@@ -310,8 +252,14 @@ export function devPulseApiPlugin(): Plugin {
           try {
             // Incremental: get all sessions, filter by lastModified > since
             if (since) {
-              const sessions = await listSessions({ workspaceFilter, sort: "newest" });
-              return sendJson(res, sessions.filter((s) => s.lastModified > since));
+              const sessions = await listSessions({
+                workspaceFilter,
+                sort: "newest",
+              });
+              return sendJson(
+                res,
+                sessions.filter((s) => s.lastModified > since),
+              );
             }
 
             // Full fetch — server cache (TTL 2 min), chat files change frequently
