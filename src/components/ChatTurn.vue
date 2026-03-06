@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
+import { useElementSize } from "@vueuse/core";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface ToolCallInfo {
@@ -38,15 +39,23 @@ interface KvEntry {
 }
 
 // ── Props & state ─────────────────────────────────────────────────────
-const props = defineProps<{ turn: ConversationTurn }>();
+const props = defineProps<{
+  turn: ConversationTurn;
+  initiallyExpanded?: boolean;
+}>();
 
 const expandedTools = ref(new Set<number>());
 const expandedThinking = ref(new Set<number>());
 const responseExpanded = ref(false);
 const copiedKey = ref<string | null>(null);
-const turnCollapsed = ref(false);
+const turnCollapsed = ref(!props.initiallyExpanded);
 
-const RESPONSE_TRUNCATE = 600;
+const rootEl = ref<HTMLElement | null>(null);
+const { width: containerWidth } = useElementSize(rootEl);
+// ~0.65 chars/px gives ~8 readable lines across any content width; min 300
+const RESPONSE_TRUNCATE = computed(() =>
+  Math.max(300, Math.floor(containerWidth.value * 0.65)),
+);
 
 // ── Actions ───────────────────────────────────────────────────────────
 function toggleTool(idx: number) {
@@ -185,7 +194,9 @@ function parseSegments(text: string): TextSegment[] {
 
 function thinkingPreview(content: string): string {
   const firstLine = content.trimStart().split("\n")[0].trim();
-  return firstLine.length > 120 ? firstLine.slice(0, 120) + "…" : firstLine;
+  // allow ~0.45 chars/px of available width so there's room for label/icon; min 80
+  const limit = Math.max(80, Math.floor(containerWidth.value * 0.45));
+  return firstLine.length > limit ? firstLine.slice(0, limit) + "…" : firstLine;
 }
 
 function textToParagraphs(text: string): string[][] {
@@ -200,12 +211,12 @@ function userMsgPreview(msg: string): string {
   return line.length > 80 ? line.slice(0, 80) + "…" : line;
 }
 
-const isTruncated = (text: string) => text.length > RESPONSE_TRUNCATE;
+const isTruncated = (text: string) => text.length > RESPONSE_TRUNCATE.value;
 
 const displayText = computed(() => {
   const t = props.turn.aiResponse;
   if (responseExpanded.value || !isTruncated(t)) return t;
-  return t.slice(0, RESPONSE_TRUNCATE) + "…";
+  return t.slice(0, RESPONSE_TRUNCATE.value) + "…";
 });
 
 const displaySegments = computed(() => parseSegments(displayText.value));
@@ -275,7 +286,7 @@ function formatSimple(value: unknown): string {
 </script>
 
 <template>
-  <div class="chat-turn">
+  <div class="chat-turn" ref="rootEl">
     <!-- Turn header (click to collapse/expand) -->
     <button
       class="chat-turn__header"
@@ -1113,7 +1124,7 @@ function formatSimple(value: unknown): string {
 }
 
 .args-todo__item--completed .args-todo__title {
-  text-decoration: line-through;
+  /* text-decoration: line-through; */
   color: var(--text-secondary);
 }
 

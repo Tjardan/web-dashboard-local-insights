@@ -221,6 +221,7 @@ function formatDate(timestamp: string): string {
                 v-for="turn in loadedSessions[entry.id].turns"
                 :key="turn.turnIndex"
                 :turn="turn"
+                :initiallyExpanded="turn.turnIndex === 0"
               />
             </template>
           </div>
