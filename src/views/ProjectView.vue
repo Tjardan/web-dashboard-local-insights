@@ -1,25 +1,34 @@
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
-import { useProjectsStore } from '@/stores/projects'
-import SourceFilter from '@/components/SourceFilter.vue'
-import TimelineEntry from '@/components/TimelineEntry.vue'
+import { useRoute, useRouter } from "vue-router";
+import { computed } from "vue";
+import { useProjectsStore } from "@/stores/projects";
+import SourceFilter from "@/components/SourceFilter.vue";
+import TimelineGroup from "@/components/TimelineGroup.vue";
+import TimelineDayDivider from "@/components/TimelineDayDivider.vue";
+import { buildDaySections } from "@/utils/timeline-grouping";
 
-const route = useRoute()
-const router = useRouter()
-const projectsStore = useProjectsStore()
+const route = useRoute();
+const router = useRouter();
+const projectsStore = useProjectsStore();
 
-const projectId = computed(() => route.params.id as string)
+const projectId = computed(() => route.params.id as string);
 const project = computed(() =>
-  projectsStore.projects.find(p => p.id === projectId.value)
-)
+  projectsStore.projects.find((p) => p.id === projectId.value),
+);
 const entries = computed(() =>
-  projectsStore.entriesForProject(projectId.value)
-    .sort((a, b) => new Date(b.meta.timestamp).getTime() - new Date(a.meta.timestamp).getTime())
-)
+  projectsStore
+    .entriesForProject(projectId.value)
+    .sort(
+      (a, b) =>
+        new Date(b.meta.timestamp).getTime() -
+        new Date(a.meta.timestamp).getTime(),
+    ),
+);
+
+const daySections = computed(() => buildDaySections(entries.value));
 
 function openChats() {
-  router.push(`/project/${projectId.value}/chats`)
+  router.push(`/project/${projectId.value}/chats`);
 }
 </script>
 
@@ -46,7 +55,10 @@ function openChats() {
       <button class="neon-btn" @click="openChats">
         <span>◈ View Chats</span>
       </button>
-      <button class="neon-btn neon-btn--magenta" @click="projectsStore.fetchProject(projectId)">
+      <button
+        class="neon-btn neon-btn--magenta"
+        @click="projectsStore.fetchProject(projectId)"
+      >
         <span>↻ Refresh</span>
       </button>
     </div>
@@ -54,15 +66,32 @@ function openChats() {
     <SourceFilter />
 
     <div class="project-view__entries">
-      <TimelineEntry
-        v-for="entry in entries"
-        :key="entry.id"
-        :entry="entry"
-      />
-
-      <div v-if="entries.length === 0" class="project-view__empty neon-card">
-        <p>No activity found for this project with current source filters.</p>
-      </div>
+      <template v-if="entries.length === 0">
+        <div class="project-view__empty neon-card">
+          <p>No activity found for this project with current source filters.</p>
+        </div>
+      </template>
+      <template v-else>
+        <div
+          v-for="section in daySections"
+          :key="section.dateKey"
+          class="project-view__day-section"
+        >
+          <TimelineDayDivider
+            :label="section.label"
+            :relativeLabel="section.relativeLabel"
+            :ageInDays="section.ageInDays"
+            :weekLabel="section.weekLabel"
+          />
+          <div class="project-view__section-entries">
+            <TimelineGroup
+              v-for="group in section.groups"
+              :key="group.id"
+              :group="group"
+            />
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -96,7 +125,7 @@ function openChats() {
 .project-view__path {
   font-size: 0.75rem;
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "Cascadia Code", "Fira Code", monospace;
   margin-top: 0.3rem;
 }
 
@@ -118,8 +147,19 @@ function openChats() {
 .project-view__entries {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
   max-width: 720px;
+}
+
+.project-view__day-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-view__section-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
 }
 
 .project-view__empty {

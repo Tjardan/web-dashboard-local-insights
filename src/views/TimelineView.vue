@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { useProjectsStore } from '@/stores/projects'
-import SourceFilter from '@/components/SourceFilter.vue'
-import TimelineEntry from '@/components/TimelineEntry.vue'
-import SkeletonCard from '@/components/SkeletonCard.vue'
+import { computed } from "vue";
+import { useProjectsStore } from "@/stores/projects";
+import SourceFilter from "@/components/SourceFilter.vue";
+import TimelineGroup from "@/components/TimelineGroup.vue";
+import TimelineDayDivider from "@/components/TimelineDayDivider.vue";
+import SkeletonCard from "@/components/SkeletonCard.vue";
+import { buildDaySections } from "@/utils/timeline-grouping";
 
-const projectsStore = useProjectsStore()
+const projectsStore = useProjectsStore();
+const daySections = computed(() =>
+  buildDaySections(projectsStore.timelineEntries),
+);
 </script>
 
 <template>
@@ -19,28 +25,48 @@ const projectsStore = useProjectsStore()
     <SourceFilter />
 
     <!-- Loading skeletons: only before any entries are available -->
-    <div v-if="projectsStore.loading && projectsStore.timelineEntries.length === 0" class="timeline__list">
+    <div
+      v-if="projectsStore.loading && projectsStore.timelineEntries.length === 0"
+      class="timeline__list"
+    >
       <SkeletonCard v-for="i in 8" :key="i" :lines="3" />
     </div>
 
     <!-- Empty state: loading done, still nothing -->
-    <div v-else-if="projectsStore.timelineEntries.length === 0" class="timeline__empty">
+    <div
+      v-else-if="projectsStore.timelineEntries.length === 0"
+      class="timeline__empty"
+    >
       <div class="empty-state neon-card">
         <div class="empty-state__icon glow-text--magenta">◈</div>
         <h2>No activity yet</h2>
-        <p>Activity from all your projects will appear here as a unified stream.</p>
+        <p>
+          Activity from all your projects will appear here as a unified stream.
+        </p>
       </div>
     </div>
 
-    <!-- Timeline entries -->
+    <!-- Timeline with day sections -->
     <div v-else class="timeline__list">
-      <TransitionGroup name="list" tag="div" class="timeline__entries">
-        <TimelineEntry
-          v-for="entry in projectsStore.timelineEntries"
-          :key="entry.id"
-          :entry="entry"
+      <div
+        v-for="section in daySections"
+        :key="section.dateKey"
+        class="timeline__day-section"
+      >
+        <TimelineDayDivider
+          :label="section.label"
+          :relativeLabel="section.relativeLabel"
+          :ageInDays="section.ageInDays"
+          :weekLabel="section.weekLabel"
         />
-      </TransitionGroup>
+        <div class="timeline__entries">
+          <TimelineGroup
+            v-for="group in section.groups"
+            :key="group.id"
+            :group="group"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -70,10 +96,16 @@ const projectsStore = useProjectsStore()
   max-width: 720px;
 }
 
+.timeline__day-section {
+  display: flex;
+  flex-direction: column;
+}
+
 .timeline__entries {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  padding-bottom: 1rem;
 }
 
 .timeline__empty {
