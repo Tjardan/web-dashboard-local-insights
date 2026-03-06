@@ -18,12 +18,12 @@ const projectsStore = useProjectsStore()
 
     <SourceFilter />
 
-    <!-- Loading state -->
-    <div v-if="projectsStore.loading" class="timeline__list">
+    <!-- Loading skeletons: only before any entries are available -->
+    <div v-if="projectsStore.loading && projectsStore.timelineEntries.length === 0" class="timeline__list">
       <SkeletonCard v-for="i in 8" :key="i" :lines="3" />
     </div>
 
-    <!-- Empty state -->
+    <!-- Empty state: loading done, still nothing -->
     <div v-else-if="projectsStore.timelineEntries.length === 0" class="timeline__empty">
       <div class="empty-state neon-card">
         <div class="empty-state__icon glow-text--magenta">◈</div>

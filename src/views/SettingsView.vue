@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
+import { useProjectsStore } from '@/stores/projects'
 import { getAllConnectors } from '@/connectors'
 import type { RootFolder } from '@/types'
 
 const settingsStore = useSettingsStore()
+const projectsStore = useProjectsStore()
 const connectors = getAllConnectors()
 
 const newFolderPath = ref('')
@@ -21,6 +23,7 @@ function addFolder() {
   settingsStore.addRootFolder({ path, label })
   newFolderPath.value = ''
   newFolderLabel.value = ''
+  projectsStore.loadAll()
 }
 
 function startEdit(folder: RootFolder) {
@@ -43,6 +46,7 @@ function cancelEdit() {
 
 function removeFolder(path: string) {
   settingsStore.removeRootFolder(path)
+  projectsStore.loadAll()
 }
 </script>
 
@@ -157,6 +161,43 @@ function removeFolder(path: string) {
               type="checkbox"
               :checked="settingsStore.isSourceEnabled(connector.type)"
               @change="settingsStore.toggleSource(connector.type)"
+            />
+            <span class="slider" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Projects -->
+    <section v-if="projectsStore.projects.length > 0" class="settings__section">
+      <h2 class="section__title">
+        <span class="section__icon">◈</span>
+        Projects
+      </h2>
+      <p class="section__desc">
+        Untracked projects are hidden from the dashboard and timeline.
+        Toggle them here to restore visibility.
+      </p>
+
+      <div class="connectors-list">
+        <div
+          v-for="project in [...projectsStore.projects].sort((a, b) => a.name.localeCompare(b.name))"
+          :key="project.id"
+          class="connector-item neon-card"
+          :class="{ 'connector-item--untracked': !settingsStore.isProjectTracked(project.id) }"
+        >
+          <div class="connector-item__info">
+            <div>
+              <span class="connector-item__label">{{ project.name }}</span>
+              <span class="connector-item__type">{{ project.path }}</span>
+            </div>
+          </div>
+
+          <label class="neon-toggle">
+            <input
+              type="checkbox"
+              :checked="settingsStore.isProjectTracked(project.id)"
+              @change="settingsStore.toggleProjectTracking(project.id)"
             />
             <span class="slider" />
           </label>
@@ -352,5 +393,9 @@ function removeFolder(path: string) {
   font-size: 0.7rem;
   color: var(--text-muted);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.connector-item--untracked {
+  opacity: 0.5;
 }
 </style>

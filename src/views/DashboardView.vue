@@ -1,11 +1,25 @@
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
+import { useSettingsStore } from '@/stores/settings'
 import { useRouter } from 'vue-router'
 import SourceFilter from '@/components/SourceFilter.vue'
 import SkeletonCard from '@/components/SkeletonCard.vue'
 
 const projectsStore = useProjectsStore()
+const settingsStore = useSettingsStore()
 const router = useRouter()
+
+const showUntracked = ref(false)
+
+/** All projects to display: tracked ones always, untracked appended when toggle is on. */
+const visibleProjects = computed(() => {
+  if (!showUntracked.value) return projectsStore.sortedProjects
+  const untracked = [...projectsStore.projects]
+    .filter(p => !settingsStore.isProjectTracked(p.id))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return [...projectsStore.sortedProjects, ...untracked]
+})
 
 function openProject(id: string) {
   router.push(`/project/${id}`)
@@ -15,21 +29,31 @@ function openProject(id: string) {
 <template>
   <div class="dashboard">
     <header class="dashboard__header">
-      <h1 class="dashboard__title">
-        <span class="glow-text">Dashboard</span>
-      </h1>
-      <p class="dashboard__subtitle">Your local project insights at a glance</p>
+      <div>
+        <h1 class="dashboard__title">
+          <span class="glow-text">Dashboard</span>
+        </h1>
+        <p class="dashboard__subtitle">Your local project insights at a glance</p>
+      </div>
+      <button
+        v-if="projectsStore.projects.some(p => !settingsStore.isProjectTracked(p.id))"
+        class="show-untracked-btn"
+        :class="{ 'show-untracked-btn--active': showUntracked }"
+        @click="showUntracked = !showUntracked"
+      >
+        <span>{{ showUntracked ? '▣ hide untracked' : '□ show untracked' }}</span>
+      </button>
     </header>
 
     <SourceFilter />
 
-    <!-- Loading state -->
-    <div v-if="projectsStore.loading" class="dashboard__grid">
+    <!-- Loading skeletons: only before projects are discovered -->
+    <div v-if="projectsStore.loading && visibleProjects.length === 0" class="dashboard__grid">
       <SkeletonCard v-for="i in 6" :key="i" :lines="4" />
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="projectsStore.sortedProjects.length === 0" class="dashboard__empty">
+    <div v-else-if="visibleProjects.length === 0" class="dashboard__empty">
       <div class="empty-state neon-card">
         <div class="empty-state__icon glow-text">◇</div>
         <h2>No projects found</h2>
@@ -40,48 +64,70 @@ function openProject(id: string) {
       </div>
     </div>
 
-    <!-- Project grid -->
+    <!-- Project grid: always shown once projects are known.
+         Each card shows a skeleton until its own fetch completes.
+         Untracked cards are appended (dimmed) when the toggle is on. -->
     <div v-else class="dashboard__grid">
-      <div
-        v-for="project in projectsStore.sortedProjects"
-        :key="project.id"
-        class="project-tile neon-card"
-        @click="openProject(project.id)"
-      >
-        <div class="project-tile__header">
-          <h3 class="project-tile__name">{{ project.name }}</h3>
-          <span v-if="project.gitRemote" class="project-tile__git">⬡</span>
-        </div>
+      <template v-for="project in visibleProjects" :key="project.id">
+        <SkeletonCard
+          v-if="settingsStore.isProjectTracked(project.id) && projectsStore.loadingProjects.has(project.id) && projectsStore.entriesForProject(project.id).length === 0"
+          :lines="4"
+        />
+        <div
+          v-else
+          class="project-tile neon-card"
+          :class="{ 'project-tile--untracked': !settingsStore.isProjectTracked(project.id) }"
+          @click="openProject(project.id)"
+        >
+          <div class="project-tile__header">
+            <h3 class="project-tile__name">{{ project.name }}</h3>
+            <!-- track/untrack action — sits left of the git indicator slot -->
+            <button
+              class="project-tile__track-btn"
+              :class="{ 'project-tile__track-btn--visible': !settingsStore.isProjectTracked(project.id) }"
+              :title="settingsStore.isProjectTracked(project.id) ? 'Hide from dashboard and timeline' : 'Show in dashboard and timeline'"
+              @click.stop="settingsStore.toggleProjectTracking(project.id)"
+            >{{ settingsStore.isProjectTracked(project.id) ? 'untrack' : 'track' }}</button>
+            <!-- fixed-width slot keeps ⬡ pinned top-right on every card -->
+            <span class="project-tile__git-slot">
+              <span v-if="project.gitRemote" class="project-tile__git">⬡</span>
+            </span>
+          </div>
 
-        <p class="project-tile__path">{{ project.path }}</p>
+          <p class="project-tile__path">{{ project.path }}</p>
 
-        <div class="project-tile__stats">
-          <span class="stat">
-            <span class="stat__value glow-text">
-              {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'commit').length }}
+          <div class="project-tile__stats">
+            <span class="stat">
+              <span class="stat__value glow-text">
+                {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'commit').length }}
+              </span>
+              <span class="stat__label">commits</span>
             </span>
-            <span class="stat__label">commits</span>
-          </span>
-          <span class="stat">
-            <span class="stat__value glow-text--magenta">
-              {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'chat').length }}
+            <span class="stat">
+              <span class="stat__value glow-text--magenta">
+                {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'chat').length }}
+              </span>
+              <span class="stat__label">chats</span>
             </span>
-            <span class="stat__label">chats</span>
-          </span>
-          <span class="stat">
-            <span class="stat__value" style="text-shadow: 0 0 8px rgba(139,92,246,0.6);">
-              {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'file-change').length }}
+            <span class="stat">
+              <span class="stat__value" style="text-shadow: 0 0 8px rgba(139,92,246,0.6);">
+                {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'file-change').length }}
+              </span>
+              <span class="stat__label">files</span>
             </span>
-            <span class="stat__label">files</span>
-          </span>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
 .dashboard__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.5rem;
 }
 
@@ -97,6 +143,29 @@ function openProject(id: string) {
   margin-top: 0.3rem;
 }
 
+.show-untracked-btn {
+  flex-shrink: 0;
+  align-self: center;
+  background: none;
+  border: 1px solid var(--border-dim);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+  white-space: nowrap;
+}
+
+.show-untracked-btn:hover,
+.show-untracked-btn--active {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+
 .dashboard__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -108,16 +177,70 @@ function openProject(id: string) {
   cursor: pointer;
 }
 
+.project-tile--untracked {
+  opacity: 0.45;
+}
+
+.project-tile--untracked:hover {
+  opacity: 0.8;
+}
+
 .project-tile__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.4rem;
   margin-bottom: 0.5rem;
 }
 
 .project-tile__name {
+  flex: 1;
+  min-width: 0;
   font-size: 1.05rem;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* track/untrack pill — hidden by default, revealed on card hover */
+.project-tile__track-btn {
+  opacity: 0;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.4rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.project-tile:hover .project-tile__track-btn {
+  opacity: 1;
+}
+
+/* On untracked cards the 'track' button is always visible */
+.project-tile__track-btn--visible {
+  opacity: 1 !important;
+  border-color: var(--border-dim);
+  color: var(--neon-cyan);
+}
+
+.project-tile__track-btn:hover {
+  border-color: var(--neon-magenta);
+  color: var(--neon-magenta);
+}
+
+/* fixed-width slot keeps ⬡ pinned at the right edge on every card */
+.project-tile__git-slot {
+  flex-shrink: 0;
+  width: 1.4rem;
+  display: flex;
+  justify-content: center;
 }
 
 .project-tile__git {
