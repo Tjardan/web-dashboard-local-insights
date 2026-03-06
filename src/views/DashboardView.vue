@@ -1,28 +1,28 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useProjectsStore } from '@/stores/projects'
-import { useSettingsStore } from '@/stores/settings'
-import { useRouter } from 'vue-router'
-import SourceFilter from '@/components/SourceFilter.vue'
-import SkeletonCard from '@/components/SkeletonCard.vue'
+import { ref, computed } from "vue";
+import { useProjectsStore } from "@/stores/projects";
+import { useSettingsStore } from "@/stores/settings";
+import { useRouter } from "vue-router";
+import SourceFilter from "@/components/SourceFilter.vue";
+import SkeletonCard from "@/components/SkeletonCard.vue";
 
-const projectsStore = useProjectsStore()
-const settingsStore = useSettingsStore()
-const router = useRouter()
+const projectsStore = useProjectsStore();
+const settingsStore = useSettingsStore();
+const router = useRouter();
 
-const showUntracked = ref(false)
+const showUntracked = ref(false);
 
 /** All projects to display: tracked ones always, untracked appended when toggle is on. */
 const visibleProjects = computed(() => {
-  if (!showUntracked.value) return projectsStore.sortedProjects
+  if (!showUntracked.value) return projectsStore.sortedProjects;
   const untracked = [...projectsStore.projects]
-    .filter(p => !settingsStore.isProjectTracked(p.id))
-    .sort((a, b) => a.name.localeCompare(b.name))
-  return [...projectsStore.sortedProjects, ...untracked]
-})
+    .filter((p) => !settingsStore.isProjectTracked(p.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [...projectsStore.sortedProjects, ...untracked];
+});
 
 function openProject(id: string) {
-  router.push(`/project/${id}`)
+  router.push(`/project/${id}`);
 }
 </script>
 
@@ -33,22 +33,33 @@ function openProject(id: string) {
         <h1 class="dashboard__title">
           <span class="glow-text">Dashboard</span>
         </h1>
-        <p class="dashboard__subtitle">Your local project insights at a glance</p>
+        <p class="dashboard__subtitle">
+          Your local project insights at a glance
+        </p>
       </div>
       <button
-        v-if="projectsStore.projects.some(p => !settingsStore.isProjectTracked(p.id))"
+        v-if="
+          projectsStore.projects.some(
+            (p) => !settingsStore.isProjectTracked(p.id),
+          )
+        "
         class="show-untracked-btn"
         :class="{ 'show-untracked-btn--active': showUntracked }"
         @click="showUntracked = !showUntracked"
       >
-        <span>{{ showUntracked ? '▣ hide untracked' : '□ show untracked' }}</span>
+        <span>{{
+          showUntracked ? "▣ hide untracked" : "□ show untracked"
+        }}</span>
       </button>
     </header>
 
     <SourceFilter />
 
     <!-- Loading skeletons: only before projects are discovered -->
-    <div v-if="projectsStore.loading && visibleProjects.length === 0" class="dashboard__grid">
+    <div
+      v-if="projectsStore.loading && visibleProjects.length === 0"
+      class="dashboard__grid"
+    >
       <SkeletonCard v-for="i in 6" :key="i" :lines="4" />
     </div>
 
@@ -57,7 +68,9 @@ function openProject(id: string) {
       <div class="empty-state neon-card">
         <div class="empty-state__icon glow-text">◇</div>
         <h2>No projects found</h2>
-        <p>Add root folders in <strong>Settings</strong> to scan for projects.</p>
+        <p>
+          Add root folders in <strong>Settings</strong> to scan for projects.
+        </p>
         <button class="neon-btn" @click="router.push('/settings')">
           <span>⚙ Open Settings</span>
         </button>
@@ -70,13 +83,21 @@ function openProject(id: string) {
     <div v-else class="dashboard__grid">
       <template v-for="project in visibleProjects" :key="project.id">
         <SkeletonCard
-          v-if="settingsStore.isProjectTracked(project.id) && projectsStore.loadingProjects.has(project.id) && projectsStore.entriesForProject(project.id).length === 0"
+          v-if="
+            settingsStore.isProjectTracked(project.id) &&
+            projectsStore.loadingProjects.has(project.id) &&
+            projectsStore.entriesForProject(project.id).length === 0
+          "
           :lines="4"
         />
         <div
           v-else
           class="project-tile neon-card"
-          :class="{ 'project-tile--untracked': !settingsStore.isProjectTracked(project.id) }"
+          :class="{
+            'project-tile--untracked': !settingsStore.isProjectTracked(
+              project.id,
+            ),
+          }"
           @click="openProject(project.id)"
         >
           <div class="project-tile__header">
@@ -84,36 +105,91 @@ function openProject(id: string) {
             <!-- track/untrack action — sits left of the git indicator slot -->
             <button
               class="project-tile__track-btn"
-              :class="{ 'project-tile__track-btn--visible': !settingsStore.isProjectTracked(project.id) }"
-              :title="settingsStore.isProjectTracked(project.id) ? 'Hide from dashboard and timeline' : 'Show in dashboard and timeline'"
+              :class="{
+                'project-tile__track-btn--visible':
+                  !settingsStore.isProjectTracked(project.id),
+              }"
+              :title="
+                settingsStore.isProjectTracked(project.id)
+                  ? 'Hide from dashboard and timeline'
+                  : 'Show in dashboard and timeline'
+              "
               @click.stop="settingsStore.toggleProjectTracking(project.id)"
-            >{{ settingsStore.isProjectTracked(project.id) ? 'untrack' : 'track' }}</button>
+            >
+              {{
+                settingsStore.isProjectTracked(project.id) ? "untrack" : "track"
+              }}
+            </button>
             <!-- fixed-width slot keeps ⬡ pinned top-right on every card -->
             <span class="project-tile__git-slot">
-              <span v-if="project.gitRemote" class="project-tile__git">⬡</span>
+              <span
+                v-if="project.gitRemote"
+                class="project-tile__git"
+                :data-tooltip="`Verbonden met git remote:\n${project.gitRemote}`"
+                >⬡</span
+              >
             </span>
           </div>
 
           <p class="project-tile__path">{{ project.path }}</p>
 
           <div class="project-tile__stats">
-            <span class="stat">
-              <span class="stat__value glow-text">
-                {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'commit').length }}
+            <span class="stat-group stat-group--green">
+              <span class="stat">
+                <span class="stat__value glow-text--green">
+                  {{
+                    projectsStore
+                      .entriesForProject(project.id)
+                      .filter((e) => e.meta.source === "commit").length
+                  }}
+                </span>
+                <span class="stat__label">commits</span>
               </span>
-              <span class="stat__label">commits</span>
+              <span class="stat-group__divider">·</span>
+              <span class="stat">
+                <span class="stat__value glow-text--green">
+                  {{
+                    projectsStore
+                      .entriesForProject(project.id)
+                      .filter((e) => e.meta.source === "commit")
+                      .reduce(
+                        (sum, e) =>
+                          sum +
+                          ((e.meta.extra?.files as unknown[])?.length ?? 0),
+                        0,
+                      )
+                  }}
+                </span>
+                <span class="stat__label">files</span>
+              </span>
             </span>
-            <span class="stat">
-              <span class="stat__value glow-text--magenta">
-                {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'chat').length }}
+            <span class="stat-group stat-group--cyan">
+              <span class="stat">
+                <span class="stat__value glow-text">
+                  {{
+                    projectsStore
+                      .entriesForProject(project.id)
+                      .filter((e) => e.meta.source === "chat").length
+                  }}
+                </span>
+                <span class="stat__label">chats</span>
               </span>
-              <span class="stat__label">chats</span>
-            </span>
-            <span class="stat">
-              <span class="stat__value" style="text-shadow: 0 0 8px rgba(139,92,246,0.6);">
-                {{ projectsStore.entriesForProject(project.id).filter(e => e.meta.source === 'file-change').length }}
+              <span class="stat-group__divider">·</span>
+              <span class="stat">
+                <span class="stat__value glow-text">
+                  {{
+                    projectsStore
+                      .entriesForProject(project.id)
+                      .filter((e) => e.meta.source === "chat")
+                      .reduce(
+                        (sum, e) =>
+                          sum + ((e.meta.extra?.messageCount as number) ?? 0),
+                        0,
+                      )
+                  }}
+                </span>
+                <span class="stat__label">turns</span>
               </span>
-              <span class="stat__label">files</span>
             </span>
           </div>
         </div>
@@ -156,7 +232,9 @@ function openProject(id: string) {
   padding: 0.35rem 0.7rem;
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease;
   white-space: nowrap;
 }
 
@@ -216,7 +294,10 @@ function openProject(id: string) {
   padding: 0.2rem 0.4rem;
   border-radius: var(--radius);
   cursor: pointer;
-  transition: opacity 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .project-tile:hover .project-tile__track-btn {
@@ -246,12 +327,42 @@ function openProject(id: string) {
 .project-tile__git {
   color: var(--neon-green);
   font-size: 1.2rem;
+  position: relative;
+  cursor: default;
+}
+
+.project-tile__git::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: 20rem;
+  max-width: 90vw;
+  padding: 0.5rem 0.75rem;
+  background: rgba(5, 10, 20, 0.95);
+  border: 1px solid var(--neon-green);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  box-shadow: 0 0 12px rgba(57, 255, 20, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+
+.project-tile__git:hover::after {
+  opacity: 1;
 }
 
 .project-tile__path {
   font-size: 0.72rem;
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "Cascadia Code", "Fira Code", monospace;
   margin-bottom: 1rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -260,7 +371,39 @@ function openProject(id: string) {
 
 .project-tile__stats {
   display: flex;
-  gap: 1.5rem;
+  gap: 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stat-group {
+  flex: 1;
+  justify-content: center;
+}
+
+.stat-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.stat-group--green {
+  border-color: rgba(57, 255, 20, 0.15);
+  background: rgba(57, 255, 20, 0.04);
+}
+
+.stat-group--cyan {
+  border-color: rgba(0, 240, 255, 0.15);
+  background: rgba(0, 240, 255, 0.04);
+}
+
+.stat-group__divider {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  opacity: 0.5;
 }
 
 .stat {

@@ -334,6 +334,11 @@ a:hover {
   text-shadow: 0 0 8px rgba(255, 0, 170, 0.6), 0 0 20px rgba(255, 0, 170, 0.3);
 }
 
+.glow-text--green {
+  color: var(--neon-green);
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.6), 0 0 20px rgba(57, 255, 20, 0.3);
+}
+
 /* ── Badge / chip ────────────────────────────────────────── */
 .neon-badge {
   display: inline-flex;
@@ -543,6 +548,15 @@ html[data-theme="sys-nexus"] .timeline-entry__files-toggle {
 
 html[data-theme="sys-nexus"] .timeline-entry__files-toggle:hover {
   color: var(--neon-cyan);
+}
+
+/* ── SYS:NEXUS — nav items: lighter than --text-secondary (#3d6070) ── */
+html[data-theme="sys-nexus"] .nav-item {
+  color: #6a9ab8;
+}
+
+html[data-theme="sys-nexus"] .nav-item:hover {
+  color: #9ec8e0;
 }
 
 /* ── SYS:NEXUS — cursor system ──────────────────────────────
@@ -767,7 +781,7 @@ html[data-theme="sys-nexus"] .chat-block__expand:hover {
 html[data-theme="sys-nexus"] .chat-turn__model {
   border-radius: 0 !important;
   font-family: 'Share Tech Mono', monospace !important;
-  font-size: 0.65rem !important;
+  font-size: 0.85rem !important;
   letter-spacing: 0.08em !important;
   background: rgba(139, 92, 246, 0.06) !important;
   border-color: rgba(139, 92, 246, 0.3) !important;
