@@ -2,6 +2,14 @@
 import { useRoute, useRouter } from "vue-router";
 import { computed, ref, onMounted, nextTick } from "vue";
 import { useProjectsStore } from "@/stores/projects";
+import ChatTurn from "@/components/ChatTurn.vue";
+
+interface ToolCallInfo {
+  toolId: string;
+  label: string;
+  args: Record<string, unknown> | null;
+  result?: string;
+}
 
 interface ConversationTurn {
   turnIndex: number;
@@ -9,6 +17,7 @@ interface ConversationTurn {
   userMessage: string;
   aiResponse: string;
   modelId: string;
+  toolCalls: ToolCallInfo[];
 }
 
 interface ParsedSession {
@@ -54,7 +63,13 @@ async function loadSession(id: string) {
   try {
     const res = await fetch(`/api/chat-session?id=${encodeURIComponent(id)}`);
     if (res.ok) {
-      loadedSessions.value[id] = (await res.json()) as ParsedSession;
+      const session = (await res.json()) as ParsedSession;
+      // Normalize: older compiled package versions may omit toolCalls
+      session.turns = session.turns.map((t) => ({
+        ...t,
+        toolCalls: t.toolCalls ?? [],
+      }));
+      loadedSessions.value[id] = session;
     }
   } catch (err) {
     console.warn(`[ChatsView] Failed to load session ${id}:`, err);
@@ -74,6 +89,43 @@ onMounted(async () => {
   );
   el?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
+
+const copiedSession = ref<string | null>(null);
+
+async function copySessionMarkdown(id: string) {
+  const session = loadedSessions.value[id];
+  if (!session) return;
+  const lines: string[] = [];
+  lines.push(`# ${session.title}`, "");
+  for (const turn of session.turns) {
+    lines.push("---", "");
+    lines.push(
+      `## Turn ${turn.turnIndex + 1}${turn.modelId ? ` · \`${turn.modelId}\`` : ""}`,
+      "",
+    );
+    if (turn.userMessage) {
+      lines.push("**User:**", "", turn.userMessage, "");
+    }
+    if ((turn.toolCalls ?? []).length > 0) {
+      for (const tc of turn.toolCalls) {
+        lines.push(`> ⚙ \`${tc.label}\``);
+      }
+      lines.push("");
+    }
+    if (turn.aiResponse) {
+      lines.push("**Copilot:**", "", turn.aiResponse, "");
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    copiedSession.value = id;
+    setTimeout(() => {
+      copiedSession.value = null;
+    }, 2200);
+  } catch {
+    // clipboard unavailable
+  }
+}
 
 function formatDate(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString("nl-NL", {
@@ -112,18 +164,26 @@ function formatDate(timestamp: string): string {
         :data-session-id="entry.id"
         class="chat-session neon-card"
         :class="{ 'chat-session--expanded': expandedChat === entry.id }"
-        @click="toggleChat(entry.id)"
       >
-        <div class="chat-session__header">
+        <div class="chat-session__header" @click="toggleChat(entry.id)">
           <div class="chat-session__meta">
             <h3 class="chat-session__title">{{ entry.meta.title }}</h3>
             <span class="chat-session__date">{{
               formatDate(entry.meta.timestamp)
             }}</span>
           </div>
-          <span class="chat-session__chevron">
-            {{ expandedChat === entry.id ? "▾" : "▸" }}
-          </span>
+          <button
+            class="chat-session__chevron-btn"
+            :aria-label="expandedChat === entry.id ? 'Inklappen' : 'Uitklappen'"
+          >
+            <span
+              class="chat-session__chevron"
+              :class="{
+                'chat-session__chevron--open': expandedChat === entry.id,
+              }"
+              >⌄</span
+            >
+          </button>
         </div>
 
         <!-- Description (always visible) -->
@@ -133,7 +193,11 @@ function formatDate(timestamp: string): string {
 
         <!-- Expanded turns -->
         <Transition name="expand">
-          <div v-if="expandedChat === entry.id" class="chat-session__messages">
+          <div
+            v-if="expandedChat === entry.id"
+            class="chat-session__messages"
+            @click.stop
+          >
             <div
               v-if="loadingSession === entry.id"
               class="chat-session__loading"
@@ -141,22 +205,23 @@ function formatDate(timestamp: string): string {
               Loading…
             </div>
             <template v-else-if="loadedSessions[entry.id]">
-              <div
+              <div class="chat-session__copy-bar">
+                <button
+                  class="copy-md-btn"
+                  @click.stop="copySessionMarkdown(entry.id)"
+                >
+                  {{
+                    copiedSession === entry.id
+                      ? "✓ Gekopieerd!"
+                      : "⎘ Kopieer als Markdown"
+                  }}
+                </button>
+              </div>
+              <ChatTurn
                 v-for="turn in loadedSessions[entry.id].turns"
                 :key="turn.turnIndex"
-                class="chat-turn"
-              >
-                <div class="chat-message chat-message--user">
-                  <span class="chat-message__role">user</span>
-                  <div class="chat-message__content">
-                    {{ turn.userMessage }}
-                  </div>
-                </div>
-                <div class="chat-message chat-message--assistant">
-                  <span class="chat-message__role">copilot</span>
-                  <div class="chat-message__content">{{ turn.aiResponse }}</div>
-                </div>
-              </div>
+                :turn="turn"
+              />
             </template>
           </div>
         </Transition>
@@ -220,12 +285,25 @@ function formatDate(timestamp: string): string {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  max-width: 800px;
+  max-width: 1200px;
 }
 
 .chat-session {
+  cursor: default;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Override neon-card hover: darken instead of lighten for better text contrast */
+.chat-session:hover {
+  background: #0e0e1a;
+  transform: none;
+}
+
+.chat-session__header {
   cursor: pointer;
-  transition: all 0.3s var(--ease-out-expo);
 }
 
 .chat-session__header {
@@ -241,17 +319,49 @@ function formatDate(timestamp: string): string {
 }
 
 .chat-session__date {
-  font-size: 0.7rem;
-  color: var(--text-muted);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.chat-session__chevron-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.chat-session__header:hover .chat-session__chevron-btn {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.45);
+}
+
+.chat-session--expanded .chat-session__chevron-btn {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.45);
 }
 
 .chat-session__chevron {
+  font-size: 1.1rem;
+  line-height: 1;
   color: var(--text-muted);
-  font-size: 1rem;
-  transition: color 0.2s ease;
+  display: inline-block;
+  transition:
+    transform 0.25s var(--ease-out-expo),
+    color 0.2s ease;
+  transform: rotate(0deg);
 }
 
-.chat-session--expanded .chat-session__chevron {
+.chat-session__chevron--open {
+  transform: rotate(180deg);
   color: var(--neon-cyan);
 }
 
@@ -270,58 +380,19 @@ function formatDate(timestamp: string): string {
   margin-top: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-}
-
-.chat-message {
-  padding: 0.6rem 0.8rem;
-  border-radius: var(--radius);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.chat-message--user {
-  background: rgba(255, 0, 170, 0.06);
-  border-left: 2px solid var(--neon-magenta);
-}
-
-.chat-message--assistant {
-  background: rgba(0, 240, 255, 0.04);
-  border-left: 2px solid var(--neon-cyan);
-}
-
-.chat-message__role {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 0.3rem;
-  display: block;
-}
-
-.chat-message__content {
-  color: var(--text-secondary);
-  white-space: pre-wrap;
+  gap: 1.1rem;
 }
 
 .chat-session__loading {
-  color: var(--text-muted);
-  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
   padding: 0.5rem 0;
 }
 
-.chat-turn {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding-bottom: 0.75rem;
+/* Divider between turns */
+.chat-session__messages > *:not(:last-child) {
+  padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-dim);
-}
-
-.chat-turn:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
 }
 
 /* Expand transition */
@@ -335,5 +406,38 @@ function formatDate(timestamp: string): string {
 .expand-leave-to {
   opacity: 0;
   max-height: 0;
+}
+
+/* ── Copy-as-markdown bar ── */
+.chat-session__copy-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 0.35rem;
+}
+
+.copy-md-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.75rem;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid rgba(0, 240, 255, 0.22);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: rgba(0, 240, 255, 0.8);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+  white-space: nowrap;
+}
+
+.copy-md-btn:hover {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.45);
+  color: var(--neon-cyan);
 }
 </style>
