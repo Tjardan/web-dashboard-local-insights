@@ -1,11 +1,15 @@
 {
-  "name": "web-dashboard-local-insights",
+  "name": "devpulse-monorepo",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "npm run build:packages && vue-tsc -b && vite build",
+    "build:packages": "npm run build --workspace=packages/chat-mcp",
     "preview": "vite preview"
   },
   "dependencies": {
