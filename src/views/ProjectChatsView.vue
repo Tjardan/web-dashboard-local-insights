@@ -2,7 +2,20 @@
 import { useRoute, useRouter } from 'vue-router'
 import { computed, ref } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
-import type { InsightEntry } from '@/types'
+
+interface ConversationTurn {
+  turnIndex: number
+  timestamp: string
+  userMessage: string
+  aiResponse: string
+  modelId: string
+}
+
+interface ParsedSession {
+  id: string
+  title: string
+  turns: ConversationTurn[]
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -17,9 +30,28 @@ const chatEntries = computed(() =>
 )
 
 const expandedChat = ref<string | null>(null)
+const loadedSessions = ref<Record<string, ParsedSession>>({})
+const loadingSession = ref<string | null>(null)
 
-function toggleChat(id: string) {
-  expandedChat.value = expandedChat.value === id ? null : id
+async function toggleChat(id: string) {
+  if (expandedChat.value === id) {
+    expandedChat.value = null
+    return
+  }
+  expandedChat.value = id
+  if (!loadedSessions.value[id]) {
+    loadingSession.value = id
+    try {
+      const res = await fetch(`/api/chat-session?id=${encodeURIComponent(id)}`)
+      if (res.ok) {
+        loadedSessions.value[id] = await res.json() as ParsedSession
+      }
+    } catch (err) {
+      console.warn(`[ChatsView] Failed to load session ${id}:`, err)
+    } finally {
+      loadingSession.value = null
+    }
+  }
 }
 
 function formatDate(timestamp: string): string {
@@ -29,15 +61,6 @@ function formatDate(timestamp: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-interface ChatPayload {
-  summary?: string
-  messages?: Array<{ role: string; content: string; timestamp: string }>
-}
-
-function getChatPayload(entry: InsightEntry): ChatPayload {
-  return (entry.payload ?? {}) as ChatPayload
 }
 </script>
 
@@ -77,23 +100,33 @@ function getChatPayload(entry: InsightEntry): ChatPayload {
           </span>
         </div>
 
-        <!-- Summary (always visible) -->
-        <div v-if="getChatPayload(entry).summary" class="chat-session__summary">
-          {{ getChatPayload(entry).summary }}
+        <!-- Description (always visible) -->
+        <div v-if="entry.meta.description" class="chat-session__summary">
+          {{ entry.meta.description }}
         </div>
 
-        <!-- Expanded messages -->
+        <!-- Expanded turns -->
         <Transition name="expand">
           <div v-if="expandedChat === entry.id" class="chat-session__messages">
-            <div
-              v-for="(msg, idx) in getChatPayload(entry).messages ?? []"
-              :key="idx"
-              class="chat-message"
-              :class="`chat-message--${msg.role}`"
-            >
-              <span class="chat-message__role">{{ msg.role }}</span>
-              <div class="chat-message__content">{{ msg.content }}</div>
+            <div v-if="loadingSession === entry.id" class="chat-session__loading">
+              Loading…
             </div>
+            <template v-else-if="loadedSessions[entry.id]">
+              <div
+                v-for="turn in loadedSessions[entry.id].turns"
+                :key="turn.turnIndex"
+                class="chat-turn"
+              >
+                <div class="chat-message chat-message--user">
+                  <span class="chat-message__role">user</span>
+                  <div class="chat-message__content">{{ turn.userMessage }}</div>
+                </div>
+                <div class="chat-message chat-message--assistant">
+                  <span class="chat-message__role">copilot</span>
+                  <div class="chat-message__content">{{ turn.aiResponse }}</div>
+                </div>
+              </div>
+            </template>
           </div>
         </Transition>
       </div>
@@ -239,6 +272,25 @@ function getChatPayload(entry: InsightEntry): ChatPayload {
 .chat-message__content {
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+
+.chat-session__loading {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0.5rem 0;
+}
+
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.chat-turn:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 /* Expand transition */
