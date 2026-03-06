@@ -8,6 +8,8 @@ import {
   setGithubToken,
   clearGithubToken,
   getGithubToken,
+  CHAT_MODELS,
+  getChatModel,
 } from "@/search/github-models";
 
 const searchStore = useSearchStore();
@@ -45,12 +47,35 @@ const askInput = ref("");
 const askFilter = ref<string>("");
 const lastAskResult = ref<AskResult | null>(null);
 
+// Time-range presets: undefined = no window (search-based RAG fallback)
+const askTimeRange = ref<number | undefined>(10);
+const timeRangeOptions: Array<{ label: string; value: number | undefined }> = [
+  { label: "3d", value: 3 },
+  { label: "7d", value: 7 },
+  { label: "10d", value: 10 },
+  { label: "30d", value: 30 },
+  { label: "Alles", value: undefined },
+];
+
+// Model selector
+const askModel = ref<string>("gpt-4o-mini");
+const selectedModelInfo = computed(() => getChatModel(askModel.value));
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000)
+    return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
 async function submitAsk() {
   if (!askInput.value.trim() || searchStore.isAsking) return;
   try {
     lastAskResult.value = await searchStore.ask(
       askInput.value,
       askFilter.value || undefined,
+      askTimeRange.value,
+      askModel.value,
     );
   } catch {
     // error is stored in searchStore.askError
@@ -450,6 +475,42 @@ watch(
           </option>
         </select>
 
+        <!-- Model selector -->
+        <div class="ask-model-row">
+          <span class="ask-model-row__label">Model</span>
+          <div class="ask-model-chips">
+            <button
+              v-for="m in CHAT_MODELS"
+              :key="m.id"
+              class="ask-model-chip"
+              :class="{ 'ask-model-chip--active': askModel === m.id }"
+              :title="m.note"
+              @click="askModel = m.id"
+            >
+              <span class="ask-model-chip__name">{{ m.label }}</span>
+              <span class="ask-model-chip__tokens">{{
+                fmtTokens(m.inputTokenLimit)
+              }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Time-range presets -->
+        <div class="ask-timerange">
+          <span class="ask-timerange__label">Tijdvenster</span>
+          <button
+            v-for="opt in timeRangeOptions"
+            :key="String(opt.value)"
+            class="ask-timerange__btn"
+            :class="{
+              'ask-timerange__btn--active': askTimeRange === opt.value,
+            }"
+            @click="askTimeRange = opt.value"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+
         <div class="ask-input-wrap">
           <textarea
             v-model="askInput"
@@ -467,7 +528,19 @@ watch(
               :disabled="!askInput.trim() || searchStore.isAsking"
               @click="submitAsk"
             >
-              <span v-if="searchStore.isAsking">⟳ Bezig…</span>
+              <span v-if="searchStore.isAsking">
+                <span
+                  v-if="
+                    searchStore.askChatTotal > 0 &&
+                    searchStore.askChatProgress < searchStore.askChatTotal
+                  "
+                >
+                  ⟳ Chats ophalen ({{ searchStore.askChatProgress }}/{{
+                    searchStore.askChatTotal
+                  }})…
+                </span>
+                <span v-else>⟳ Bezig…</span>
+              </span>
               <span v-else>✦ Vraag AI</span>
             </button>
           </div>
@@ -486,6 +559,45 @@ watch(
             >{{ lastAskResult.tokensUsed }} tokens</span
           >
         </div>
+        <!-- Context stats -->
+        <div class="ask-result__stats">
+          <span
+            v-if="lastAskResult.contextStats.commits > 0"
+            class="stat-pill stat-pill--commit"
+          >
+            {{ lastAskResult.contextStats.commits }} commit{{
+              lastAskResult.contextStats.commits !== 1 ? "s" : ""
+            }}
+          </span>
+          <span
+            v-if="lastAskResult.contextStats.chats > 0"
+            class="stat-pill stat-pill--chat"
+          >
+            {{ lastAskResult.contextStats.chats }} chat{{
+              lastAskResult.contextStats.chats !== 1 ? "s" : ""
+            }}
+          </span>
+          <span class="stat-pill stat-pill--range">
+            {{
+              lastAskResult.contextStats.timeRangeDays != null
+                ? `afgelopen ${lastAskResult.contextStats.timeRangeDays}d`
+                : "zoekresultaten"
+            }}
+          </span>
+          <span
+            v-if="lastAskResult.contextStats.wasTrimmed"
+            class="stat-pill stat-pill--trimmed"
+            title="Sommige chats zijn ingekort om binnen het contextbudget te passen"
+          >
+            ingekort
+          </span>
+          <span
+            class="stat-pill stat-pill--model"
+            :title="`Context budget: ${lastAskResult.contextStats.contextBudgetChars.toLocaleString()} chars`"
+          >
+            {{ lastAskResult.model }}
+          </span>
+        </div>
         <div class="ask-result__answer">{{ lastAskResult.answer }}</div>
 
         <details class="ask-result__sources">
@@ -498,15 +610,15 @@ watch(
             <span
               class="result-source"
               :style="{
-                color: sourceColor(src.entry.meta.source),
-                borderColor: sourceColor(src.entry.meta.source),
+                color: sourceColor(src.meta.source),
+                borderColor: sourceColor(src.meta.source),
               }"
-              >{{ src.entry.meta.source }}</span
+              >{{ src.meta.source }}</span
             >
-            <span class="ask-source__title">{{ src.entry.meta.title }}</span>
-            <span class="ask-source__project">{{ src.entry.projectId }}</span>
+            <span class="ask-source__title">{{ src.meta.title }}</span>
+            <span class="ask-source__project">{{ src.projectId }}</span>
             <span class="ask-source__date">{{
-              formatDate(src.entry.meta.timestamp)
+              formatDate(src.meta.timestamp)
             }}</span>
           </div>
         </details>
@@ -975,6 +1087,127 @@ watch(
   margin-bottom: 1.25rem;
 }
 
+/* ── Time-range presets ────────────────────────────────────────────────────── */
+.ask-timerange {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.ask-timerange__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-right: 0.25rem;
+}
+
+.ask-timerange__btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.25rem 0.65rem;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    border-color 0.12s,
+    background 0.12s;
+}
+
+.ask-timerange__btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(255, 0, 170, 0.4);
+}
+
+.ask-timerange__btn--active {
+  color: var(--neon-magenta);
+  border-color: rgba(255, 0, 170, 0.6);
+  background: rgba(255, 0, 170, 0.08);
+}
+
+/* ── Model selector ─────────────────────────────────────────────── */
+.ask-model-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ask-model-row__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-right: 0.25rem;
+  padding-top: 0.3rem;
+  white-space: nowrap;
+}
+
+.ask-model-chips {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.ask-model-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    border-color 0.12s,
+    background 0.12s;
+  line-height: 1.4;
+}
+
+.ask-model-chip:hover {
+  color: var(--text-primary);
+  border-color: rgba(0, 240, 255, 0.35);
+}
+
+.ask-model-chip--active {
+  color: var(--neon-cyan);
+  border-color: rgba(0, 240, 255, 0.55);
+  background: rgba(0, 240, 255, 0.07);
+}
+
+.ask-model-chip__name {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.ask-model-chip__tokens {
+  font-size: 0.63rem;
+  opacity: 0.6;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.ask-model-chip--active .ask-model-chip__tokens {
+  opacity: 0.85;
+}
+
+/* Model pill in result stats */
+.stat-pill--model {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.35);
+  color: var(--neon-cyan);
+}
+
 .ask-input-wrap {
   display: flex;
   flex-direction: column;
@@ -1043,6 +1276,49 @@ watch(
 
 .ask-result__tokens {
   color: var(--text-muted);
+}
+
+/* Context stats strip under the result header */
+.ask-result__stats {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.875rem;
+}
+
+.stat-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid;
+}
+
+.stat-pill--commit {
+  color: var(--neon-green);
+  border-color: rgba(57, 255, 20, 0.35);
+  background: rgba(57, 255, 20, 0.06);
+}
+
+.stat-pill--chat {
+  color: var(--neon-cyan);
+  border-color: rgba(0, 240, 255, 0.35);
+  background: rgba(0, 240, 255, 0.06);
+}
+
+.stat-pill--range {
+  color: var(--neon-magenta);
+  border-color: rgba(255, 0, 170, 0.35);
+  background: rgba(255, 0, 170, 0.06);
+}
+
+.stat-pill--trimmed {
+  color: var(--neon-yellow, #ffe600);
+  border-color: rgba(255, 230, 0, 0.35);
+  background: rgba(255, 230, 0, 0.06);
+  cursor: help;
 }
 
 .ask-result__answer {
