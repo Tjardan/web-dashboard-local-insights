@@ -1,66 +1,87 @@
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router'
-import { computed, ref } from 'vue'
-import { useProjectsStore } from '@/stores/projects'
+import { useRoute, useRouter } from "vue-router";
+import { computed, ref, onMounted, nextTick } from "vue";
+import { useProjectsStore } from "@/stores/projects";
 
 interface ConversationTurn {
-  turnIndex: number
-  timestamp: string
-  userMessage: string
-  aiResponse: string
-  modelId: string
+  turnIndex: number;
+  timestamp: string;
+  userMessage: string;
+  aiResponse: string;
+  modelId: string;
 }
 
 interface ParsedSession {
-  id: string
-  title: string
-  turns: ConversationTurn[]
+  id: string;
+  title: string;
+  turns: ConversationTurn[];
 }
 
-const route = useRoute()
-const router = useRouter()
-const projectsStore = useProjectsStore()
+const route = useRoute();
+const router = useRouter();
+const projectsStore = useProjectsStore();
 
-const projectId = computed(() => route.params.id as string)
+const projectId = computed(() => route.params.id as string);
 
 const chatEntries = computed(() =>
-  projectsStore.entriesForProject(projectId.value)
-    .filter(e => e.meta.source === 'chat')
-    .sort((a, b) => new Date(b.meta.timestamp).getTime() - new Date(a.meta.timestamp).getTime())
-)
+  projectsStore
+    .entriesForProject(projectId.value)
+    .filter((e) => e.meta.source === "chat")
+    .sort(
+      (a, b) =>
+        new Date(b.meta.timestamp).getTime() -
+        new Date(a.meta.timestamp).getTime(),
+    ),
+);
 
-const expandedChat = ref<string | null>(null)
-const loadedSessions = ref<Record<string, ParsedSession>>({})
-const loadingSession = ref<string | null>(null)
+const expandedChat = ref<string | null>(null);
+const loadedSessions = ref<Record<string, ParsedSession>>({});
+const loadingSession = ref<string | null>(null);
+const sessionListEl = ref<HTMLElement | null>(null);
 
 async function toggleChat(id: string) {
   if (expandedChat.value === id) {
-    expandedChat.value = null
-    return
+    expandedChat.value = null;
+    return;
   }
-  expandedChat.value = id
-  if (!loadedSessions.value[id]) {
-    loadingSession.value = id
-    try {
-      const res = await fetch(`/api/chat-session?id=${encodeURIComponent(id)}`)
-      if (res.ok) {
-        loadedSessions.value[id] = await res.json() as ParsedSession
-      }
-    } catch (err) {
-      console.warn(`[ChatsView] Failed to load session ${id}:`, err)
-    } finally {
-      loadingSession.value = null
+  expandedChat.value = id;
+  await loadSession(id);
+}
+
+async function loadSession(id: string) {
+  if (loadedSessions.value[id]) return;
+  loadingSession.value = id;
+  try {
+    const res = await fetch(`/api/chat-session?id=${encodeURIComponent(id)}`);
+    if (res.ok) {
+      loadedSessions.value[id] = (await res.json()) as ParsedSession;
     }
+  } catch (err) {
+    console.warn(`[ChatsView] Failed to load session ${id}:`, err);
+  } finally {
+    loadingSession.value = null;
   }
 }
 
+onMounted(async () => {
+  const targetSession = route.query.session as string | undefined;
+  if (!targetSession) return;
+  expandedChat.value = targetSession;
+  await loadSession(targetSession);
+  await nextTick();
+  const el = document.querySelector<HTMLElement>(
+    `[data-session-id="${CSS.escape(targetSession)}"]`,
+  );
+  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 function formatDate(timestamp: string): string {
-  return new Date(timestamp).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return new Date(timestamp).toLocaleDateString("nl-NL", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 </script>
 
@@ -73,7 +94,9 @@ function formatDate(timestamp: string): string {
       <h1 class="chats-view__title">
         <span class="glow-text">Copilot Chats</span>
       </h1>
-      <p class="chats-view__subtitle">{{ chatEntries.length }} sessions found</p>
+      <p class="chats-view__subtitle">
+        {{ chatEntries.length }} sessions found
+      </p>
     </header>
 
     <div v-if="chatEntries.length === 0" class="chats-view__empty neon-card">
@@ -86,6 +109,7 @@ function formatDate(timestamp: string): string {
       <div
         v-for="entry in chatEntries"
         :key="entry.id"
+        :data-session-id="entry.id"
         class="chat-session neon-card"
         :class="{ 'chat-session--expanded': expandedChat === entry.id }"
         @click="toggleChat(entry.id)"
@@ -93,10 +117,12 @@ function formatDate(timestamp: string): string {
         <div class="chat-session__header">
           <div class="chat-session__meta">
             <h3 class="chat-session__title">{{ entry.meta.title }}</h3>
-            <span class="chat-session__date">{{ formatDate(entry.meta.timestamp) }}</span>
+            <span class="chat-session__date">{{
+              formatDate(entry.meta.timestamp)
+            }}</span>
           </div>
           <span class="chat-session__chevron">
-            {{ expandedChat === entry.id ? '▾' : '▸' }}
+            {{ expandedChat === entry.id ? "▾" : "▸" }}
           </span>
         </div>
 
@@ -108,7 +134,10 @@ function formatDate(timestamp: string): string {
         <!-- Expanded turns -->
         <Transition name="expand">
           <div v-if="expandedChat === entry.id" class="chat-session__messages">
-            <div v-if="loadingSession === entry.id" class="chat-session__loading">
+            <div
+              v-if="loadingSession === entry.id"
+              class="chat-session__loading"
+            >
               Loading…
             </div>
             <template v-else-if="loadedSessions[entry.id]">
@@ -119,7 +148,9 @@ function formatDate(timestamp: string): string {
               >
                 <div class="chat-message chat-message--user">
                   <span class="chat-message__role">user</span>
-                  <div class="chat-message__content">{{ turn.userMessage }}</div>
+                  <div class="chat-message__content">
+                    {{ turn.userMessage }}
+                  </div>
                 </div>
                 <div class="chat-message chat-message--assistant">
                   <span class="chat-message__role">copilot</span>
