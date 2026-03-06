@@ -7,7 +7,9 @@ export interface RawResponseItem {
   // Thinking blocks
   id?: string;
   // Tool invocations
-  invocationMessage?: string;
+  // invocationMessage can be a plain string (custom/MCP tools) or an object
+  // {value: string, supportThemeIcons: boolean, ...} (VS Code built-in tools)
+  invocationMessage?: string | Record<string, unknown>;
   toolSpecificData?: unknown;
   toolCallId?: string;
   toolId?: string;
@@ -75,14 +77,31 @@ export interface SessionSummary {
 }
 
 /**
+ * A single tool invocation extracted from an AI response.
+ */
+export interface ToolCallInfo {
+  /** Internal tool identifier (e.g. "vscode.read_file") */
+  toolId: string;
+  /** Human-readable label from invocationMessage (e.g. "Reading file src/app.ts") */
+  label: string;
+  /** Structured args: from toolSpecificData, resultDetails.input (MCP), or invocationMessage.uris */
+  args: Record<string, unknown> | null;
+  /** Brief text summary of the tool's output/result (from resultDetails) */
+  result?: string;
+}
+
+/**
  * One turn in a conversation: a user prompt and the AI response.
  */
 export interface ConversationTurn {
   turnIndex: number;
   timestamp: string; // ISO string or ''
   userMessage: string;
+  /** AI text response (markdownContent + thinking blocks; tool calls excluded) */
   aiResponse: string;
   modelId: string;
+  /** Tool invocations extracted from this turn's response */
+  toolCalls: ToolCallInfo[];
 }
 
 /**
