@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { RouterView } from "vue-router";
-import { onMounted, watch } from "vue";
+import { onMounted, watch, watchEffect } from "vue";
 import AppShell from "@/components/AppShell.vue";
 import { useProjectsStore } from "@/stores/projects";
 import { useSearchStore } from "@/stores/search";
+import { useSettingsStore } from "@/stores/settings";
 import {
   gitCommitConnector,
   chatHistoryConnector,
@@ -12,6 +13,14 @@ import {
 
 const projectsStore = useProjectsStore();
 const searchStore = useSearchStore();
+const settingsStore = useSettingsStore();
+
+watchEffect(() => {
+  document.documentElement.setAttribute(
+    "data-theme",
+    settingsStore.activeTheme,
+  );
+});
 
 // Register all connectors (both in store and global registry)
 for (const connector of [gitCommitConnector, chatHistoryConnector]) {

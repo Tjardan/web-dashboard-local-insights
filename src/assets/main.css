@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap');
+
 /* ═══════════════════════════════════════════════════════════
    DevPulse — Cyberpunk / Neon Dark Theme
    ═══════════════════════════════════════════════════════════ */
@@ -39,6 +41,10 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
+  /* Theme effects */
+  --scanline-opacity: 0.03;
+  --vignette-opacity: 0;
+
   color-scheme: dark;
 }
 
@@ -65,6 +71,18 @@ body {
   overflow-x: hidden;
 }
 
+/* CRT vignette — activated per theme */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.75) 100%);
+  opacity: var(--vignette-opacity);
+  transition: opacity 0.4s ease;
+}
+
 /* Subtle scanline overlay */
 body::after {
   content: '';
@@ -76,8 +94,8 @@ body::after {
     0deg,
     transparent,
     transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
+    rgba(0, 0, 0, var(--scanline-opacity)) 2px,
+    rgba(0, 0, 0, var(--scanline-opacity)) 4px
   );
 }
 
@@ -365,4 +383,463 @@ a:hover {
 @keyframes grid-drift {
   0% { transform: translate(0, 0); }
   100% { transform: translate(50px, 50px); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SYS:NEXUS Theme — Navy terminal aesthetic
+   ═══════════════════════════════════════════════════════════ */
+html[data-theme="sys-nexus"] {
+  /* Backgrounds — deep navy blue */
+  --bg-deep: #030810;
+  --bg-surface: #060e1a;
+  --bg-card: #0d1e35;
+  --bg-card-hover: #102030;
+  --bg-input: #0a1628;
+
+  /* Neon accents */
+  --neon-cyan: #00f5ff;
+  --neon-green: #00ff88;
+
+  /* Text */
+  --text-primary: #a8cce0;
+  --text-secondary: #3d6070;
+  --text-muted: #264050;
+
+  /* Borders & glows */
+  --border-dim: rgba(0, 245, 255, 0.08);
+  --border-neon: rgba(0, 245, 255, 0.2);
+  --glow-cyan: 0 0 12px rgba(0, 245, 255, 0.4), 0 0 30px rgba(0, 245, 255, 0.15);
+
+  /* Sharp corners */
+  --radius: 0px;
+  --radius-lg: 0px;
+
+  /* Effects */
+  --scanline-opacity: 0.04;
+  --vignette-opacity: 1;
+}
+
+html[data-theme="sys-nexus"] body {
+  font-family: 'Share Tech Mono', monospace;
+  cursor: crosshair;
+}
+
+html[data-theme="sys-nexus"] h1,
+html[data-theme="sys-nexus"] h2 {
+  font-family: 'Orbitron', monospace;
+  letter-spacing: 0.1em;
+}
+
+html[data-theme="sys-nexus"] .logo-text {
+  font-family: 'Orbitron', monospace;
+  letter-spacing: 0.15em;
+}
+
+/* ── SYS:NEXUS — card: left-border reveal replaces gradient mask ─ */
+html[data-theme="sys-nexus"] .neon-card::before {
+  /* Reset the gradient-border mask technique entirely */
+  left: 0;
+  top: 0;
+  bottom: 0;
+  right: auto;
+  width: 3px;
+  height: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan);
+  -webkit-mask: none;
+  mask: none;
+  opacity: 1;
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="sys-nexus"] .neon-card:hover::before,
+html[data-theme="sys-nexus"] .chat-session--expanded::before {
+  transform: scaleY(1);
+  opacity: 1;
+}
+
+/* No vertical lift — terminal UI stays flat */
+html[data-theme="sys-nexus"] .neon-card:hover {
+  transform: none;
+}
+
+/* ── SYS:NEXUS — horizontal scan sweep on hover ──────────── */
+html[data-theme="sys-nexus"] .neon-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 245, 255, 0.05), transparent);
+  pointer-events: none;
+  z-index: 1;
+  transition: none;
+}
+
+html[data-theme="sys-nexus"] .neon-card:hover::after {
+  animation: nexus-h-scan 0.7s ease forwards;
+}
+
+@keyframes nexus-h-scan {
+  from { left: -60%; }
+  to   { left: 120%; }
+}
+
+/* ── SYS:NEXUS — chevron buttons ─────────────────────────── */
+html[data-theme="sys-nexus"] .chat-session__chevron-btn {
+  background: transparent;
+  border-color: rgba(0, 245, 255, 0.3);
+  border-radius: 0;
+  transition: all 0.2s ease;
+}
+
+html[data-theme="sys-nexus"] .chat-session__header:hover .chat-session__chevron-btn,
+html[data-theme="sys-nexus"] .chat-session--expanded .chat-session__chevron-btn {
+  background: rgba(0, 245, 255, 0.08);
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.4);
+}
+
+html[data-theme="sys-nexus"] .chat-session__chevron {
+  color: var(--neon-cyan);
+  opacity: 0.6;
+}
+
+html[data-theme="sys-nexus"] .chat-session__chevron--open {
+  color: var(--neon-cyan);
+  opacity: 1;
+}
+
+html[data-theme="sys-nexus"] .entry-group__chevron {
+  color: var(--neon-cyan);
+  opacity: 0.5;
+}
+
+html[data-theme="sys-nexus"] .entry-group__chevron--open {
+  color: var(--neon-cyan);
+  opacity: 1;
+}
+
+html[data-theme="sys-nexus"] .entry-group__item-files-toggle {
+  font-family: 'Share Tech Mono', monospace;
+  color: rgba(0, 245, 255, 0.45);
+  letter-spacing: 0.05em;
+}
+
+html[data-theme="sys-nexus"] .entry-group__item-files-toggle:hover {
+  color: var(--neon-cyan);
+}
+
+html[data-theme="sys-nexus"] .timeline-entry__files-toggle {
+  font-family: 'Share Tech Mono', monospace;
+  color: rgba(0, 245, 255, 0.45);
+  letter-spacing: 0.05em;
+}
+
+html[data-theme="sys-nexus"] .timeline-entry__files-toggle:hover {
+  color: var(--neon-cyan);
+}
+
+/* ── SYS:NEXUS — cursor system ──────────────────────────────
+   Root cause: UA stylesheet sets button { cursor: default } so buttons
+   *inherit* the body crosshair instead of showing pointer.
+   Fix: explicit pointer !important on all interactive elements,
+   then override chevron-toggles with custom cursor.
+
+   1. body/background       → crosshair
+   2. ALL buttons & links   → pointer !important
+   3. Clickable divs        → pointer !important
+   4. Expand toggles        → custom chevron-crosshair cursor
+   5. Selectable text       → text (no !important, inherits cleanly)
+   6. Text inputs           → text !important                          */
+
+html[data-theme="sys-nexus"],
+html[data-theme="sys-nexus"] body {
+  cursor: crosshair;
+}
+
+/* ALL buttons and links — broad rule beats UA default + scoped [data-v-*] */
+html[data-theme="sys-nexus"] button,
+html[data-theme="sys-nexus"] a,
+html[data-theme="sys-nexus"] label,
+html[data-theme="sys-nexus"] select,
+html[data-theme="sys-nexus"] input[type="range"],
+html[data-theme="sys-nexus"] input[type="checkbox"],
+html[data-theme="sys-nexus"] input[type="radio"],
+html[data-theme="sys-nexus"] [role="button"],
+html[data-theme="sys-nexus"] .timeline-entry--clickable,
+html[data-theme="sys-nexus"] .entry-group__item--clickable,
+html[data-theme="sys-nexus"] .source-chip,
+html[data-theme="sys-nexus"] .chat-session {
+  cursor: pointer !important;
+}
+
+/* Expand/collapse toggles — custom chevron-in-crosshair cursor
+   Class selector 0,1,1,0 beats broad button rule 0,1,0,1 → wins */
+html[data-theme="sys-nexus"] .chat-turn__header,
+html[data-theme="sys-nexus"] .chat-session__header,
+html[data-theme="sys-nexus"] .entry-group__header,
+html[data-theme="sys-nexus"] .thinking-block__bar,
+html[data-theme="sys-nexus"] .chat-block__expand,
+html[data-theme="sys-nexus"] .tool-call__toggle,
+html[data-theme="sys-nexus"] .entry-group__item-files-toggle,
+html[data-theme="sys-nexus"] .timeline-entry__files-toggle {
+  cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M5 9L14 20L23 9' stroke='%2300f5ff' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>") 14 20, pointer !important;
+}
+
+/* Up chevron — expanded state (click to collapse) */
+html[data-theme="sys-nexus"] .chat-session--expanded .chat-session__header,
+html[data-theme="sys-nexus"] .entry-group__chevron--open,
+html[data-theme="sys-nexus"] .entry-group__chevron--open ~ *,
+html[data-theme="sys-nexus"] .entry-group__header:has(> .entry-group__right > .entry-group__chevron--open),
+html[data-theme="sys-nexus"] .chat-turn__chevron:not(.chat-turn__chevron--collapsed),
+html[data-theme="sys-nexus"] .thinking-block__body ~ .thinking-block__bar,
+html[data-theme="sys-nexus"] .tool-call__toggle[title='Details verbergen'],
+html[data-theme="sys-nexus"] .chat-block__expand--expanded,
+html[data-theme="sys-nexus"] .entry-group__item-files-chevron.open,
+html[data-theme="sys-nexus"] .timeline-entry__files-chevron.open {
+  cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M5 20L14 9L23 20' stroke='%2300f5ff' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>") 14 9, pointer !important;
+}
+
+/* Selectable text — no !important so scoped pointer still wins on parent */
+html[data-theme="sys-nexus"] p,
+html[data-theme="sys-nexus"] .chat-para,
+html[data-theme="sys-nexus"] .chat-block__text,
+html[data-theme="sys-nexus"] pre,
+html[data-theme="sys-nexus"] code,
+html[data-theme="sys-nexus"] .tool-result__body,
+html[data-theme="sys-nexus"] .thinking-block__body {
+  cursor: text;
+}
+
+/* Text inputs */
+html[data-theme="sys-nexus"] input[type="text"],
+html[data-theme="sys-nexus"] input[type="password"],
+html[data-theme="sys-nexus"] input[type="search"],
+html[data-theme="sys-nexus"] input[type="number"],
+html[data-theme="sys-nexus"] textarea {
+  cursor: text !important;
+}
+
+/* Non-interactive message blocks — override pointer inherited from .chat-session */
+html[data-theme="sys-nexus"] .chat-block {
+  cursor: crosshair !important;
+}
+
+/* ── SYS:NEXUS — tool calls: tag styling (like SYS:NEXUS node tags) ─ */
+html[data-theme="sys-nexus"] .tool-call__chip {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.68rem !important;
+  letter-spacing: 0.12em !important;
+  padding: 0.18rem 0.6rem !important;
+  background: rgba(139, 92, 246, 0.04) !important;
+  border-color: rgba(139, 92, 246, 0.35) !important;
+  color: rgba(180, 150, 255, 0.9) !important;
+}
+
+html[data-theme="sys-nexus"] .tool-call__chip .tool-call__icon {
+  display: none !important;  /* remove ⚙ icon — label alone is sufficient */
+}
+
+html[data-theme="sys-nexus"] .tool-call__toggle {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.63rem !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  padding: 0.15rem 0.55rem !important;
+  background: rgba(0, 245, 255, 0.04) !important;
+  border-color: rgba(0, 245, 255, 0.25) !important;
+  color: rgba(0, 245, 255, 0.65) !important;
+}
+
+html[data-theme="sys-nexus"] .tool-call__toggle:hover {
+  background: rgba(0, 245, 255, 0.1) !important;
+  border-color: var(--neon-cyan) !important;
+  color: var(--neon-cyan) !important;
+  box-shadow: 0 0 6px rgba(0, 245, 255, 0.3) !important;
+}
+
+html[data-theme="sys-nexus"] .tool-call__toggle-icon {
+  display: none !important; /* hide ⊞/⊟ — the text label is enough */
+}
+
+html[data-theme="sys-nexus"] .tool-call__preview {
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.72rem !important;
+  color: rgba(61, 96, 112, 0.9) !important;
+  letter-spacing: 0.02em !important;
+}
+
+html[data-theme="sys-nexus"] .tool-call {
+  border-left-color: rgba(139, 92, 246, 0.3) !important;
+}
+
+html[data-theme="sys-nexus"] .tool-result {
+  border-radius: 0 !important;
+  border-color: rgba(0, 245, 255, 0.12) !important;
+  background: rgba(3, 8, 16, 0.6) !important;
+}
+
+html[data-theme="sys-nexus"] .tool-result__bar {
+  background: transparent !important;
+  border-bottom-color: rgba(0, 245, 255, 0.08) !important;
+}
+
+html[data-theme="sys-nexus"] .tool-result__label {
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 0.15em !important;
+  color: rgba(0, 245, 255, 0.4) !important;
+  text-transform: uppercase !important;
+}
+
+html[data-theme="sys-nexus"] .tool-result__body {
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.74rem !important;
+  color: rgba(168, 204, 224, 0.7) !important;
+}
+
+/* ── SYS:NEXUS — copy buttons ────────────────────────────── */
+html[data-theme="sys-nexus"] .copy-btn {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.68rem !important;
+  background: transparent !important;
+  border-color: rgba(0, 245, 255, 0.3) !important;
+  color: rgba(0, 245, 255, 0.6) !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+}
+
+html[data-theme="sys-nexus"] .copy-btn:hover {
+  background: rgba(0, 245, 255, 0.08) !important;
+  border-color: var(--neon-cyan) !important;
+  color: var(--neon-cyan) !important;
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.25) !important;
+}
+
+/* ── SYS:NEXUS — copy-as-markdown button ─────────────────── */
+html[data-theme="sys-nexus"] .copy-md-btn {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.72rem !important;
+  background: transparent !important;
+  border-color: rgba(0, 245, 255, 0.3) !important;
+  color: rgba(0, 245, 255, 0.6) !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+}
+
+html[data-theme="sys-nexus"] .copy-md-btn:hover {
+  background: rgba(0, 245, 255, 0.08) !important;
+  border-color: var(--neon-cyan) !important;
+  color: var(--neon-cyan) !important;
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.25) !important;
+}
+
+/* ── SYS:NEXUS — toon volledig / toon minder button ─────── */
+html[data-theme="sys-nexus"] .chat-block__expand {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.72rem !important;
+  background: transparent !important;
+  border-color: rgba(0, 245, 255, 0.22) !important;
+  color: rgba(0, 245, 255, 0.55) !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+
+html[data-theme="sys-nexus"] .chat-block__expand:hover {
+  background: rgba(0, 245, 255, 0.08) !important;
+  border-color: var(--neon-cyan) !important;
+  color: var(--neon-cyan) !important;
+  box-shadow: 0 0 6px rgba(0, 245, 255, 0.25) !important;
+}
+
+/* ── SYS:NEXUS — model name badge ───────────────────────── */
+html[data-theme="sys-nexus"] .chat-turn__model {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.65rem !important;
+  letter-spacing: 0.08em !important;
+  background: rgba(139, 92, 246, 0.06) !important;
+  border-color: rgba(139, 92, 246, 0.3) !important;
+  color: rgba(180, 150, 255, 0.75) !important;
+}
+
+/* ── SYS:NEXUS — thinking / reflection / reasoning blocks ─── */
+html[data-theme="sys-nexus"] .thinking-block {
+  border-color: rgba(0, 245, 255, 0.18) !important;
+  border-style: dashed !important;
+  background: rgba(0, 245, 255, 0.02) !important;
+  border-radius: 0 !important;
+}
+
+html[data-theme="sys-nexus"] .thinking-block__bar {
+  background: rgba(0, 245, 255, 0.04) !important;
+  border-bottom-color: rgba(0, 245, 255, 0.12) !important;
+}
+
+html[data-theme="sys-nexus"] .thinking-block__bar:hover {
+  background: rgba(0, 245, 255, 0.09) !important;
+}
+
+html[data-theme="sys-nexus"] .thinking-block__icon,
+html[data-theme="sys-nexus"] .thinking-block__label {
+  color: rgba(0, 245, 255, 0.7) !important;
+}
+
+html[data-theme="sys-nexus"] .thinking-block__label {
+  font-family: 'Orbitron', monospace !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 0.14em !important;
+}
+
+html[data-theme="sys-nexus"] .thinking-block__preview {
+  color: rgba(0, 245, 255, 0.45) !important;
+  font-style: normal !important;
+  font-family: 'Share Tech Mono', monospace !important;
+}
+
+html[data-theme="sys-nexus"] .thinking-block__body {
+  color: rgba(168, 204, 224, 0.8) !important;
+  font-style: normal !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.78rem !important;
+}
+
+/* ── SYS:NEXUS — code blocks ─────────────────────────────── */
+html[data-theme="sys-nexus"] .code-block {
+  border-radius: 0 !important;
+  border-color: rgba(0, 245, 255, 0.18) !important;
+  background: rgba(3, 8, 16, 0.85) !important;
+}
+
+html[data-theme="sys-nexus"] .code-block__bar {
+  background: rgba(0, 245, 255, 0.04) !important;
+  border-bottom-color: rgba(0, 245, 255, 0.1) !important;
+}
+
+html[data-theme="sys-nexus"] .code-block__lang {
+  font-family: 'Share Tech Mono', monospace !important;
+  color: rgba(0, 245, 255, 0.55) !important;
+  letter-spacing: 0.08em !important;
+}
+
+html[data-theme="sys-nexus"] .code-block__pre {
+  font-family: 'Share Tech Mono', monospace !important;
+}
+
+/* Grid bg — tinted for sys-nexus */
+html[data-theme="sys-nexus"] .grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 245, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 245, 255, 0.04) 1px, transparent 1px);
 }
