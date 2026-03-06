@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import type { AppSettings, RootFolder, SourceType } from "@/types";
+import type { AppSettings, AppTheme, RootFolder, SourceType } from "@/types";
 
 const SETTINGS_KEY = "devpulse-settings";
 
@@ -63,9 +63,17 @@ export const useSettingsStore = defineStore("settings", () => {
   const maxContentWidth = computed(
     () => settings.value.maxContentWidth ?? 1200,
   );
+  const activeTheme = computed<AppTheme>(
+    () => settings.value.activeTheme ?? "cyberpunk",
+  );
 
   function setMaxContentWidth(width: number) {
     settings.value.maxContentWidth = Math.max(600, Math.min(3840, width));
+    saveSettings(settings.value);
+  }
+
+  function setTheme(theme: AppTheme) {
+    settings.value.activeTheme = theme;
     saveSettings(settings.value);
   }
 
@@ -121,6 +129,7 @@ export const useSettingsStore = defineStore("settings", () => {
     rootFolders,
     enabledSources,
     maxContentWidth,
+    activeTheme,
     addRootFolder,
     removeRootFolder,
     updateRootFolder,
@@ -129,5 +138,6 @@ export const useSettingsStore = defineStore("settings", () => {
     toggleProjectTracking,
     isProjectTracked,
     setMaxContentWidth,
+    setTheme,
   };
 });

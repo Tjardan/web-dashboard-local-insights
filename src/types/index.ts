@@ -83,6 +83,9 @@ export interface RootFolder {
   label: string;
 }
 
+/** Available UI themes */
+export type AppTheme = "cyberpunk" | "sys-nexus";
+
 /** App settings (persisted to local JSON) */
 export interface AppSettings {
   rootFolders: RootFolder[];
@@ -91,6 +94,8 @@ export interface AppSettings {
   untrackedProjects?: string[];
   /** Max width (px) of the main content area. Default 1200. */
   maxContentWidth?: number;
+  /** Active UI theme. Default: 'cyberpunk' */
+  activeTheme?: AppTheme;
 }
 
 /** Chat session from VS Code chat history */
