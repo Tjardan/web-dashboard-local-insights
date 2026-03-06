@@ -7,9 +7,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run build:packages && vite",
+    "dev:vite": "vite",
     "build": "npm run build:packages && vue-tsc -b && vite build",
     "build:packages": "npm run build --workspace=packages/chat-mcp",
+    "build:packages:watch": "npm run build -- --watch --workspace=packages/chat-mcp",
     "preview": "vite preview"
   },
   "dependencies": {
