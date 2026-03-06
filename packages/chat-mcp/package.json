@@ -1,0 +1,22 @@
+{
+  "name": "@devpulse/chat-mcp",
+  "version": "1.0.0",
+  "description": "VS Code chat history storage reader — shared package for DevPulse",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.7.0"
+  }
+}
