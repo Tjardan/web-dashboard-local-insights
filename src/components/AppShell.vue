@@ -1,20 +1,21 @@
 <script setup lang="ts">
-import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { useRoute, useRouter } from "vue-router";
+import { computed } from "vue";
 
-const route = useRoute()
-const router = useRouter()
+const route = useRoute();
+const router = useRouter();
 
 const navItems = [
-  { path: '/', label: 'Dashboard', icon: '⬡' },
-  { path: '/timeline', label: 'Timeline', icon: '◈' },
-  { path: '/settings', label: 'Settings', icon: '⚙' },
-]
+  { path: "/", label: "Dashboard", icon: "⬡" },
+  { path: "/timeline", label: "Timeline", icon: "◈" },
+  { path: "/search", label: "Search", icon: "⊛" },
+  { path: "/settings", label: "Settings", icon: "⚙" },
+];
 
-const currentPath = computed(() => route.path)
+const currentPath = computed(() => route.path);
 
 function navigate(path: string) {
-  router.push(path)
+  router.push(path);
 }
 </script>
 
@@ -27,7 +28,8 @@ function navigate(path: string) {
       <div class="sidebar__logo" @click="navigate('/')">
         <span class="logo-icon glow-text">◆</span>
         <span class="logo-text">
-          <span class="glow-text">Dev</span><span class="glow-text--magenta">Pulse</span>
+          <span class="glow-text">Dev</span
+          ><span class="glow-text--magenta">Pulse</span>
         </span>
       </div>
 
