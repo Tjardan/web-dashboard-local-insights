@@ -176,13 +176,26 @@ function formatDate(timestamp: string): string {
             class="chat-session__chevron-btn"
             :aria-label="expandedChat === entry.id ? 'Inklappen' : 'Uitklappen'"
           >
-            <span
+            <svg
               class="chat-session__chevron"
               :class="{
                 'chat-session__chevron--open': expandedChat === entry.id,
               }"
-              >⌄</span
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
             >
+              <path
+                d="M3 5.5L8 10.5L13 5.5"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
           </button>
         </div>
 
@@ -351,10 +364,9 @@ function formatDate(timestamp: string): string {
 }
 
 .chat-session__chevron {
-  font-size: 1.1rem;
-  line-height: 1;
   color: var(--text-muted);
-  display: inline-block;
+  display: block;
+  flex-shrink: 0;
   transition:
     transform 0.25s var(--ease-out-expo),
     color 0.2s ease;
@@ -399,14 +411,19 @@ function formatDate(timestamp: string): string {
 /* Expand transition */
 .expand-enter-active,
 .expand-leave-active {
-  transition: all 0.3s var(--ease-out-expo);
-  overflow: hidden;
+  transition:
+    opacity 0.3s var(--ease-out-expo),
+    transform 0.35s var(--ease-out-expo);
 }
 
-.expand-enter-from,
+.expand-enter-from {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
 .expand-leave-to {
   opacity: 0;
-  max-height: 0;
+  transform: translateY(-8px);
 }
 
 /* ── Copy-as-markdown bar ── */

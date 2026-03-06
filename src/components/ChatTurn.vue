@@ -645,9 +645,26 @@ function formatSimple(value: unknown): string {
           <button
             v-if="isTruncated(turn.aiResponse)"
             class="chat-block__expand"
+            :class="{ 'chat-block__expand--expanded': responseExpanded }"
             @click.stop="responseExpanded = !responseExpanded"
           >
-            {{ responseExpanded ? "↑ toon minder" : "↓ toon volledig" }}
+            <svg
+              width="12"
+              height="8"
+              viewBox="0 0 12 8"
+              fill="none"
+              aria-hidden="true"
+              class="chat-block__expand-icon"
+            >
+              <path
+                d="M1 1L6 7L11 1"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ responseExpanded ? "toon minder" : "toon volledig" }}
           </button>
         </div>
       </div>
@@ -785,12 +802,19 @@ function formatSimple(value: unknown): string {
 /* ── Turn expand transition ── */
 .turn-expand-enter-active,
 .turn-expand-leave-active {
-  transition: opacity 0.22s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.3s var(--ease-out-expo);
 }
 
-.turn-expand-enter-from,
+.turn-expand-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
 .turn-expand-leave-to {
   opacity: 0;
+  transform: translateY(-6px);
 }
 
 /* ── Message blocks ── */
@@ -866,23 +890,37 @@ function formatSimple(value: unknown): string {
 }
 
 .chat-block__expand {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 0.5rem;
-  padding: 0.2rem 0.5rem;
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  padding: 0.22rem 0.65rem;
+  background: rgba(0, 240, 255, 0.06);
+  border: 1px solid rgba(0, 240, 255, 0.22);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
   color: var(--neon-cyan);
   transition:
     background 0.2s,
-    border-color 0.2s;
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .chat-block__expand:hover {
-  background: rgba(0, 240, 255, 0.15);
-  border-color: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.13);
+  border-color: rgba(0, 240, 255, 0.45);
+  color: #fff;
+}
+
+.chat-block__expand-icon {
+  flex-shrink: 0;
+  transition: transform 0.25s var(--ease-out-expo);
+}
+
+.chat-block__expand--expanded .chat-block__expand-icon {
+  transform: rotate(180deg);
 }
 
 /* ── Copy button ── */
