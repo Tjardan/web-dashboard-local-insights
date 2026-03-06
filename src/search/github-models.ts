@@ -16,6 +16,103 @@ export const GITHUB_MODELS_ENDPOINT = "https://models.inference.ai.azure.com";
 export const EMBEDDING_MODEL = "text-embedding-3-small";
 export const CHAT_MODEL_DEFAULT = "gpt-4o-mini";
 
+// ─── Model catalogue ─────────────────────────────────────────────────────────
+
+export interface ChatModelInfo {
+  /** API model id */
+  id: string;
+  /** Short display label */
+  label: string;
+  /** Provider / family */
+  provider: string;
+  /** Hard input-token limit enforced by GitHub Models */
+  inputTokenLimit: number;
+  /** Recommended max output tokens */
+  outputTokenLimit: number;
+  /** Characters ≈ tokens × 4 (conservative) */
+  inputCharLimit: number;
+  /** Brief capability note shown in the picker */
+  note: string;
+}
+
+/**
+ * GitHub Models per-request token limits (confirmed empirically, March 2026).
+ * These are hard API caps — unrelated to subscription tier.
+ * Copilot Pro/Enterprise only increases rate limits (req/min), not context size.
+ *
+ * inputCharLimit = floor(inputTokenLimit * 3.5) — conservative char-to-token
+ * ratio that leaves headroom for system prompt + answer wrapper.
+ */
+export const CHAT_MODELS: ChatModelInfo[] = [
+  {
+    id: "gpt-4o-mini",
+    label: "GPT-4o mini",
+    provider: "OpenAI",
+    inputTokenLimit: 8_192, // confirmed via 413 error
+    outputTokenLimit: 2_048,
+    inputCharLimit: Math.floor(8_192 * 3.5),
+    note: "Snel & goedkoop",
+  },
+  {
+    id: "gpt-4o",
+    label: "GPT-4o",
+    provider: "OpenAI",
+    inputTokenLimit: 16_000, // confirmed via 413 error: "Max size: 16000 tokens"
+    outputTokenLimit: 4_096,
+    inputCharLimit: Math.floor(16_000 * 3.5),
+    note: "Sterk redeneren",
+  },
+  {
+    id: "o3-mini",
+    label: "o3-mini",
+    provider: "OpenAI",
+    inputTokenLimit: 4_000, // confirmed by user
+    outputTokenLimit: 1_000,
+    inputCharLimit: Math.floor(4_000 * 3.5),
+    note: "Reasoning model",
+  },
+  {
+    id: "o1-mini",
+    label: "o1-mini",
+    provider: "OpenAI",
+    inputTokenLimit: 4_000, // confirmed by user
+    outputTokenLimit: 1_000,
+    inputCharLimit: Math.floor(4_000 * 3.5),
+    note: "Redeneermodel",
+  },
+  {
+    id: "Phi-4",
+    label: "Phi-4",
+    provider: "Microsoft",
+    inputTokenLimit: 8_192, // confirmed by user (8k)
+    outputTokenLimit: 2_048,
+    inputCharLimit: Math.floor(8_192 * 3.5),
+    note: "Klein & efficiënt",
+  },
+  {
+    id: "DeepSeek-R1",
+    label: "DeepSeek R1",
+    provider: "DeepSeek",
+    inputTokenLimit: 4_000, // confirmed by user
+    outputTokenLimit: 1_000,
+    inputCharLimit: Math.floor(4_000 * 3.5),
+    note: "Open reasoning model",
+  },
+  {
+    id: "Llama-3.3-70B-Instruct",
+    label: "Llama 3.3 70B",
+    provider: "Meta",
+    inputTokenLimit: 16_000, // confirmed by user (16k)
+    outputTokenLimit: 4_096,
+    inputCharLimit: Math.floor(16_000 * 3.5),
+    note: "Open source",
+  },
+];
+
+export function getChatModel(id: string): ChatModelInfo {
+  return CHAT_MODELS.find((m) => m.id === id) ?? CHAT_MODELS[0];
+}
+
 // ─── Token management ─────────────────────────────────────────────────────────
 
 const TOKEN_KEY = "devpulse-gh-token";
