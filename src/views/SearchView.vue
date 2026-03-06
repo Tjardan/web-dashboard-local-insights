@@ -110,9 +110,13 @@ function openProject(id: string) {
   router.push(`/project/${id}`);
 }
 
-function openChat(sessionId: unknown) {
+function openChat(projectId: string, sessionId: unknown) {
   if (typeof sessionId === "string") {
-    router.push(`/project/${sessionId}/chats`);
+    router.push(
+      `/project/${projectId}/chats?session=${encodeURIComponent(sessionId)}`,
+    );
+  } else {
+    router.push(`/project/${projectId}/chats`);
   }
 }
 
@@ -357,7 +361,10 @@ watch(
           class="result-card neon-card"
           @click="
             result.entry.meta.source === 'chat'
-              ? openChat(result.entry.meta.extra?.sessionId)
+              ? openChat(
+                  result.entry.projectId,
+                  result.entry.meta.extra?.sessionId,
+                )
               : openProject(result.entry.projectId)
           "
         >
