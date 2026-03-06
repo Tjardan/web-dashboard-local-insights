@@ -303,6 +303,113 @@ export function devPulseApiPlugin(): Plugin {
           }
         }
 
+        // ── Server-side search/ask proxy ─────────────────
+        // Accepts POST /api/search-ask with JSON body:
+        //   { prompt: string, token: string, model?: string, maxTokens?: number }
+        // The token is provided by the client and forwarded to GitHub Models.
+        // This endpoint exists so MCP tools and server-side agents can call it.
+        if (url.pathname === "/api/search-ask" && req.method === "POST") {
+          try {
+            const body = await new Promise<string>((resolve, reject) => {
+              let data = "";
+              req.on("data", (chunk: Buffer) => {
+                data += chunk.toString();
+              });
+              req.on("end", () => resolve(data));
+              req.on("error", reject);
+            });
+
+            const { prompt, token, model, maxTokens, context } = JSON.parse(
+              body,
+            ) as {
+              prompt: string;
+              token: string;
+              model?: string;
+              maxTokens?: number;
+              context?: string;
+            };
+
+            if (!prompt) return sendError(res, "Missing prompt");
+            if (!token) return sendError(res, "Missing token");
+            if (!/^(ghp_|github_pat_|ghs_)/.test(token)) {
+              return sendError(res, "Invalid GitHub token format", 401);
+            }
+
+            const GITHUB_MODELS_ENDPOINT =
+              "https://models.inference.ai.azure.com";
+            const response = await fetch(
+              `${GITHUB_MODELS_ENDPOINT}/chat/completions`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  model: model ?? "gpt-4o-mini",
+                  messages: [
+                    {
+                      role: "system",
+                      content: `Je bent een behulpzame assistent die een ontwikkelaar helpt inzicht te krijgen in hun projecten op basis van git commits en Copilot chat sessies.
+Geef altijd een concreet, gestructureerd antwoord in het Nederlands.
+Verwijs specifiek naar projectnamen, data en details uit de context.
+Als je iets niet kunt beantwoorden op basis van de context, zeg dat dan eerlijk.
+
+Huidige datum: ${new Date().toLocaleDateString("nl-NL")}`,
+                    },
+                    ...(context
+                      ? [
+                          {
+                            role: "user" as const,
+                            content: `Context:\n${context}\n\nVraag: ${prompt}`,
+                          },
+                        ]
+                      : [
+                          {
+                            role: "user" as const,
+                            content: prompt,
+                          },
+                        ]),
+                  ],
+                  temperature: 0.3,
+                  max_tokens: maxTokens ?? 2048,
+                }),
+              },
+            );
+
+            if (!response.ok) {
+              const errBody = await response.text();
+              return sendError(
+                res,
+                `GitHub Models error (${response.status}): ${errBody}`,
+                502,
+              );
+            }
+
+            const data = (await response.json()) as {
+              choices: Array<{ message: { content: string } }>;
+              model: string;
+              usage: {
+                prompt_tokens: number;
+                completion_tokens: number;
+                total_tokens: number;
+              };
+            };
+
+            return sendJson(res, {
+              answer: data.choices[0]?.message?.content ?? "",
+              model: data.model,
+              usage: data.usage,
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              `search-ask failed: ${(err as Error).message}`,
+              500,
+            );
+          }
+        }
+
         next();
       });
     },
