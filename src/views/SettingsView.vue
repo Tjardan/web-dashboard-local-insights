@@ -1,52 +1,53 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useSettingsStore } from '@/stores/settings'
-import { useProjectsStore } from '@/stores/projects'
-import { getAllConnectors } from '@/connectors'
-import type { RootFolder } from '@/types'
+import { ref } from "vue";
+import { useSettingsStore } from "@/stores/settings";
+import { useProjectsStore } from "@/stores/projects";
+import { getAllConnectors } from "@/connectors";
+import type { RootFolder } from "@/types";
 
-const settingsStore = useSettingsStore()
-const projectsStore = useProjectsStore()
-const connectors = getAllConnectors()
+const settingsStore = useSettingsStore();
+const projectsStore = useProjectsStore();
+const connectors = getAllConnectors();
 
-const newFolderPath = ref('')
-const newFolderLabel = ref('')
-const editingFolder = ref<string | null>(null)
-const editPath = ref('')
-const editLabel = ref('')
+const newFolderPath = ref("");
+const newFolderLabel = ref("");
+const editingFolder = ref<string | null>(null);
+const editPath = ref("");
+const editLabel = ref("");
 
 function addFolder() {
-  const path = newFolderPath.value.trim()
-  const label = newFolderLabel.value.trim() || path.split(/[\\/]/).pop() || path
-  if (!path) return
+  const path = newFolderPath.value.trim();
+  const label =
+    newFolderLabel.value.trim() || path.split(/[\\/]/).pop() || path;
+  if (!path) return;
 
-  settingsStore.addRootFolder({ path, label })
-  newFolderPath.value = ''
-  newFolderLabel.value = ''
-  projectsStore.loadAll()
+  settingsStore.addRootFolder({ path, label });
+  newFolderPath.value = "";
+  newFolderLabel.value = "";
+  projectsStore.loadAll();
 }
 
 function startEdit(folder: RootFolder) {
-  editingFolder.value = folder.path
-  editPath.value = folder.path
-  editLabel.value = folder.label
+  editingFolder.value = folder.path;
+  editPath.value = folder.path;
+  editLabel.value = folder.label;
 }
 
 function saveEdit(oldPath: string) {
   settingsStore.updateRootFolder(oldPath, {
     path: editPath.value.trim(),
     label: editLabel.value.trim(),
-  })
-  editingFolder.value = null
+  });
+  editingFolder.value = null;
 }
 
 function cancelEdit() {
-  editingFolder.value = null
+  editingFolder.value = null;
 }
 
 function removeFolder(path: string) {
-  settingsStore.removeRootFolder(path)
-  projectsStore.loadAll()
+  settingsStore.removeRootFolder(path);
+  projectsStore.loadAll();
 }
 </script>
 
@@ -79,8 +80,16 @@ function removeFolder(path: string) {
               <span class="folder-item__path">{{ folder.path }}</span>
             </div>
             <div class="folder-item__actions">
-              <button class="icon-btn" title="Edit" @click="startEdit(folder)">✎</button>
-              <button class="icon-btn icon-btn--danger" title="Remove" @click="removeFolder(folder.path)">✕</button>
+              <button class="icon-btn" title="Edit" @click="startEdit(folder)">
+                ✎
+              </button>
+              <button
+                class="icon-btn icon-btn--danger"
+                title="Remove"
+                @click="removeFolder(folder.path)"
+              >
+                ✕
+              </button>
             </div>
           </template>
 
@@ -92,14 +101,14 @@ function removeFolder(path: string) {
                 class="neon-input"
                 placeholder="Label"
               />
-              <input
-                v-model="editPath"
-                class="neon-input"
-                placeholder="Path"
-              />
+              <input v-model="editPath" class="neon-input" placeholder="Path" />
               <div class="folder-edit__actions">
-                <button class="neon-btn" @click="saveEdit(folder.path)"><span>Save</span></button>
-                <button class="neon-btn neon-btn--magenta" @click="cancelEdit"><span>Cancel</span></button>
+                <button class="neon-btn" @click="saveEdit(folder.path)">
+                  <span>Save</span>
+                </button>
+                <button class="neon-btn neon-btn--magenta" @click="cancelEdit">
+                  <span>Cancel</span>
+                </button>
               </div>
             </div>
           </template>
@@ -175,16 +184,22 @@ function removeFolder(path: string) {
         Projects
       </h2>
       <p class="section__desc">
-        Untracked projects are hidden from the dashboard and timeline.
-        Toggle them here to restore visibility.
+        Untracked projects are hidden from the dashboard and timeline. Toggle
+        them here to restore visibility.
       </p>
 
       <div class="connectors-list">
         <div
-          v-for="project in [...projectsStore.projects].sort((a, b) => a.name.localeCompare(b.name))"
+          v-for="project in [...projectsStore.projects].sort((a, b) =>
+            a.name.localeCompare(b.name),
+          )"
           :key="project.id"
           class="connector-item neon-card"
-          :class="{ 'connector-item--untracked': !settingsStore.isProjectTracked(project.id) }"
+          :class="{
+            'connector-item--untracked': !settingsStore.isProjectTracked(
+              project.id,
+            ),
+          }"
         >
           <div class="connector-item__info">
             <div>
@@ -204,10 +219,103 @@ function removeFolder(path: string) {
         </div>
       </div>
     </section>
+
+    <!-- Appearance -->
+    <section class="settings__section">
+      <h2 class="section__title">
+        <span class="section__icon">🎨</span>
+        Appearance
+      </h2>
+      <p class="section__desc">
+        Adjust the maximum width of the content area across all pages.
+      </p>
+
+      <div class="neon-card width-control">
+        <div class="width-control__row">
+          <label class="width-control__label">Content max-width</label>
+          <span class="width-control__value neon-badge neon-badge--chat">
+            {{ settingsStore.maxContentWidth }}px
+          </span>
+        </div>
+        <input
+          type="range"
+          class="width-slider"
+          min="600"
+          max="2400"
+          step="100"
+          :value="settingsStore.maxContentWidth"
+          @input="
+            settingsStore.setMaxContentWidth(
+              Number(($event.target as HTMLInputElement).value),
+            )
+          "
+        />
+        <div class="width-presets">
+          <button
+            v-for="preset in [800, 1000, 1200, 1440, 1920]"
+            :key="preset"
+            class="neon-btn width-preset-btn"
+            :class="{
+              'neon-btn--active': settingsStore.maxContentWidth === preset,
+            }"
+            @click="settingsStore.setMaxContentWidth(preset)"
+          >
+            <span>{{ preset }}</span>
+          </button>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
+.width-control {
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.width-control__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.width-control__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.width-control__value {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.width-slider {
+  width: 100%;
+  accent-color: var(--neon-cyan);
+  cursor: pointer;
+}
+
+.width-presets {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.width-preset-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.width-preset-btn.neon-btn--active {
+  opacity: 1;
+  box-shadow: 0 0 8px var(--neon-cyan);
+}
 .settings__header {
   margin-bottom: 2rem;
 }
@@ -219,7 +327,6 @@ function removeFolder(path: string) {
 
 .settings__section {
   margin-bottom: 2.5rem;
-  max-width: 700px;
 }
 
 .section__title {
@@ -269,7 +376,7 @@ function removeFolder(path: string) {
 .folder-item__path {
   font-size: 0.72rem;
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "Cascadia Code", "Fira Code", monospace;
 }
 
 .folder-item__actions {
@@ -323,7 +430,9 @@ function removeFolder(path: string) {
   border-radius: var(--radius);
   color: var(--text-primary);
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
   font-family: inherit;
 }
 
@@ -392,7 +501,7 @@ function removeFolder(path: string) {
 .connector-item__type {
   font-size: 0.7rem;
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-family: "Cascadia Code", "Fira Code", monospace;
 }
 
 .connector-item--untracked {

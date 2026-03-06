@@ -93,7 +93,6 @@ const daySections = computed(() =>
   flex-direction: column;
   gap: 0.75rem;
   margin-top: 1rem;
-  max-width: 720px;
 }
 
 .timeline__day-section {

@@ -47,6 +47,7 @@ function loadSettings(): AppSettings {
       chat: true,
     },
     untrackedProjects: [],
+    maxContentWidth: 1200,
   };
 }
 
@@ -59,6 +60,14 @@ export const useSettingsStore = defineStore("settings", () => {
 
   const rootFolders = computed(() => settings.value.rootFolders);
   const enabledSources = computed(() => settings.value.enabledSources);
+  const maxContentWidth = computed(
+    () => settings.value.maxContentWidth ?? 1200,
+  );
+
+  function setMaxContentWidth(width: number) {
+    settings.value.maxContentWidth = Math.max(600, Math.min(3840, width));
+    saveSettings(settings.value);
+  }
 
   function addRootFolder(folder: RootFolder) {
     if (settings.value.rootFolders.some((f) => f.path === folder.path)) return;
@@ -111,6 +120,7 @@ export const useSettingsStore = defineStore("settings", () => {
     settings,
     rootFolders,
     enabledSources,
+    maxContentWidth,
     addRootFolder,
     removeRootFolder,
     updateRootFolder,
@@ -118,5 +128,6 @@ export const useSettingsStore = defineStore("settings", () => {
     isSourceEnabled,
     toggleProjectTracking,
     isProjectTracked,
+    setMaxContentWidth,
   };
 });

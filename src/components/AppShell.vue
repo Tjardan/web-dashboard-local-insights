@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
 import { computed } from "vue";
+import { useSettingsStore } from "@/stores/settings";
 
 const route = useRoute();
 const router = useRouter();
+const settingsStore = useSettingsStore();
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: "⬡" },
@@ -54,7 +56,16 @@ function navigate(path: string) {
 
     <!-- Main content -->
     <main class="main-content">
-      <slot />
+      <div
+        class="content-wrapper"
+        :style="
+          route.meta.fullWidth
+            ? {}
+            : { maxWidth: settingsStore.maxContentWidth + 'px' }
+        "
+      >
+        <slot />
+      </div>
     </main>
   </div>
 </template>
@@ -168,5 +179,9 @@ function navigate(path: string) {
   margin-left: var(--sidebar-width);
   padding: 2rem;
   min-height: 100vh;
+}
+
+.content-wrapper {
+  width: 100%;
 }
 </style>

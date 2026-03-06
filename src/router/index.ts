@@ -7,7 +7,7 @@ const router = createRouter({
       path: "/",
       name: "dashboard",
       component: () => import("@/views/DashboardView.vue"),
-      meta: { transition: "slide-up" },
+      meta: { transition: "slide-up", fullWidth: true },
     },
     {
       path: "/timeline",

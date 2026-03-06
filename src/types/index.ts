@@ -3,110 +3,118 @@
    ═══════════════════════════════════════════════════════════ */
 
 /** Known source types — extensible via string union */
-export type SourceType = 'commit' | 'chat' | 'file-change' | 'teams' | 'email' | (string & {})
+export type SourceType =
+  | "commit"
+  | "chat"
+  | "file-change"
+  | "teams"
+  | "email"
+  | (string & {});
 
 /** Metadata attached to any insight entry */
 export interface EntryMeta {
   /** Source type for filtering & display */
-  source: SourceType
+  source: SourceType;
   /** ISO-8601 timestamp */
-  timestamp: string
+  timestamp: string;
   /** Human-readable title */
-  title: string
+  title: string;
   /** Optional longer description / summary */
-  description?: string
+  description?: string;
   /** Arbitrary key-value metadata for connectors */
-  extra?: Record<string, unknown>
+  extra?: Record<string, unknown>;
 }
 
 /** A single insight entry (commit, chat, file change, etc.) */
 export interface InsightEntry {
   /** Unique ID (e.g. commit SHA, chat session ID, file path hash) */
-  id: string
+  id: string;
   /** Project this entry belongs to */
-  projectId: string
+  projectId: string;
   /** Core metadata */
-  meta: EntryMeta
+  meta: EntryMeta;
   /** Raw payload from the source connector */
-  payload: unknown
+  payload: unknown;
 }
 
 /** Validation result for an entry */
 export interface ValidationResult {
-  valid: boolean
-  errors: string[]
+  valid: boolean;
+  errors: string[];
 }
 
 /** A registered source connector */
 export interface SourceConnector {
   /** Unique type identifier */
-  type: SourceType
+  type: SourceType;
   /** Human-readable label */
-  label: string
+  label: string;
   /** Neon color CSS variable name */
-  color: string
+  color: string;
   /** Icon name (lucide) */
-  icon: string
+  icon: string;
   /** Whether this source is currently enabled */
-  enabled: boolean
+  enabled: boolean;
   /** Fetch entries for a project. Pass `since` (ISO-8601) for incremental updates. */
-  fetch(project: ProjectConfig, since?: string): Promise<InsightEntry[]>
+  fetch(project: ProjectConfig, since?: string): Promise<InsightEntry[]>;
   /** Validate a single entry */
-  validate(entry: InsightEntry): ValidationResult
+  validate(entry: InsightEntry): ValidationResult;
 }
 
 /** Project configuration (stored in settings.json) */
 export interface ProjectConfig {
   /** Derived ID (kebab-case of folder name) */
-  id: string
+  id: string;
   /** Display name */
-  name: string
+  name: string;
   /** Absolute path to project root */
-  path: string
+  path: string;
   /** Git remote URL if available */
-  gitRemote?: string
+  gitRemote?: string;
   /** Default branch */
-  defaultBranch?: string
+  defaultBranch?: string;
 }
 
 /** Root folder configuration */
 export interface RootFolder {
   /** Absolute path to scan for projects */
-  path: string
+  path: string;
   /** User-defined label */
-  label: string
+  label: string;
 }
 
 /** App settings (persisted to local JSON) */
 export interface AppSettings {
-  rootFolders: RootFolder[]
-  enabledSources: Record<SourceType, boolean>
+  rootFolders: RootFolder[];
+  enabledSources: Record<SourceType, boolean>;
   /** Project IDs explicitly hidden from dashboard & timeline */
-  untrackedProjects?: string[]
+  untrackedProjects?: string[];
+  /** Max width (px) of the main content area. Default 1200. */
+  maxContentWidth?: number;
 }
 
 /** Chat session from VS Code chat history */
 export interface ChatSession {
-  id: string
-  title: string
-  createdAt: string
-  lastMessageAt: string
-  messageCount: number
-  summary?: string
-  messages: ChatMessage[]
+  id: string;
+  title: string;
+  createdAt: string;
+  lastMessageAt: string;
+  messageCount: number;
+  summary?: string;
+  messages: ChatMessage[];
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: string
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
 }
 
 /** Git commit */
 export interface GitCommit {
-  sha: string
-  message: string
-  author: string
-  date: string
-  files: string[]
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+  files: string[];
 }

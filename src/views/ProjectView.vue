@@ -147,7 +147,7 @@ function openChats() {
 .project-view__entries {
   display: flex;
   flex-direction: column;
-  max-width: 720px;
+  max-width: 1200px;
 }
 
 .project-view__day-section {
