@@ -50,6 +50,26 @@ function navigate(path: string) {
       </nav>
 
       <div class="sidebar__footer">
+        <button
+          class="theme-toggle"
+          :title="`Switch theme (current: ${settingsStore.activeTheme})`"
+          @click="
+            settingsStore.setTheme(
+              settingsStore.activeTheme === 'cyberpunk'
+                ? 'sys-nexus'
+                : 'cyberpunk',
+            )
+          "
+        >
+          <span class="theme-toggle__icon">{{
+            settingsStore.activeTheme === "cyberpunk" ? "◆" : "■"
+          }}</span>
+          <span class="theme-toggle__label">{{
+            settingsStore.activeTheme === "cyberpunk"
+              ? "CYBERPUNK"
+              : "SYS:NEXUS"
+          }}</span>
+        </button>
         <span class="sidebar__version">v0.1.0</span>
       </div>
     </aside>
@@ -183,5 +203,40 @@ function navigate(path: string) {
 
 .content-wrapper {
   width: 100%;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.theme-toggle:hover {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
+}
+
+.theme-toggle__icon {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.theme-toggle__label {
+  flex: 1;
 }
 </style>

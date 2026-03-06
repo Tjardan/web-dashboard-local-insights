@@ -57,6 +57,74 @@ function removeFolder(path: string) {
       <h1 class="settings__title glow-text">Settings</h1>
     </header>
 
+    <!-- Theme -->
+    <section class="settings__section">
+      <h2 class="section__title">
+        <span class="section__icon">◈</span>
+        Theme
+      </h2>
+      <p class="section__desc">
+        Choose a visual theme for the dashboard. Your preference is saved
+        automatically.
+      </p>
+
+      <div class="theme-grid">
+        <button
+          class="theme-card"
+          :class="{
+            'theme-card--active': settingsStore.activeTheme === 'cyberpunk',
+          }"
+          @click="settingsStore.setTheme('cyberpunk')"
+        >
+          <div class="theme-card__header">
+            <span class="theme-card__name">◆ CYBERPUNK</span>
+            <span
+              v-if="settingsStore.activeTheme === 'cyberpunk'"
+              class="neon-badge neon-badge--chat"
+              >ACTIVE</span
+            >
+          </div>
+          <p class="theme-card__desc">
+            Neon glow on deep black. Rounded cards, Inter font.
+          </p>
+          <div class="theme-swatches">
+            <span class="swatch" style="background: #0a0a0f" />
+            <span class="swatch" style="background: #1a1a2e" />
+            <span class="swatch" style="background: #00f0ff" />
+            <span class="swatch" style="background: #ff00aa" />
+            <span class="swatch" style="background: #8b5cf6" />
+          </div>
+        </button>
+
+        <button
+          class="theme-card"
+          :class="{
+            'theme-card--active': settingsStore.activeTheme === 'sys-nexus',
+          }"
+          @click="settingsStore.setTheme('sys-nexus')"
+        >
+          <div class="theme-card__header">
+            <span class="theme-card__name">■ SYS:NEXUS</span>
+            <span
+              v-if="settingsStore.activeTheme === 'sys-nexus'"
+              class="neon-badge neon-badge--chat"
+              >ACTIVE</span
+            >
+          </div>
+          <p class="theme-card__desc">
+            Navy terminal aesthetic. Sharp edges, mono font, CRT vignette.
+          </p>
+          <div class="theme-swatches">
+            <span class="swatch" style="background: #030810" />
+            <span class="swatch" style="background: #0d1e35" />
+            <span class="swatch" style="background: #00f5ff" />
+            <span class="swatch" style="background: #ff00aa" />
+            <span class="swatch" style="background: #00ff88" />
+          </div>
+        </button>
+      </div>
+    </section>
+
     <!-- Root Folders -->
     <section class="settings__section">
       <h2 class="section__title">
@@ -506,5 +574,77 @@ function removeFolder(path: string) {
 
 .connector-item--untracked {
   opacity: 0.5;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.theme-card {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-neon);
+  transform: translateY(-2px);
+  box-shadow: var(--glow-cyan);
+}
+
+.theme-card--active {
+  border-color: var(--neon-cyan) !important;
+  box-shadow: var(--glow-cyan) !important;
+}
+
+.theme-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.theme-card__name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.theme-card__desc {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.theme-swatches {
+  display: flex;
+  gap: 6px;
+  margin-top: 0.25rem;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: inline-block;
+  flex-shrink: 0;
 }
 </style>
