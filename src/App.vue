@@ -6,18 +6,13 @@ import { useProjectsStore } from "@/stores/projects";
 import {
   gitCommitConnector,
   chatHistoryConnector,
-  fileChangeConnector,
   registerSourceConnector,
 } from "@/connectors";
 
 const projectsStore = useProjectsStore();
 
 // Register all connectors (both in store and global registry)
-for (const connector of [
-  gitCommitConnector,
-  chatHistoryConnector,
-  fileChangeConnector,
-]) {
+for (const connector of [gitCommitConnector, chatHistoryConnector]) {
   projectsStore.registerConnector(connector);
   registerSourceConnector(connector);
 }
