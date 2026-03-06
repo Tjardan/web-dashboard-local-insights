@@ -2,28 +2,45 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { ProjectConfig, InsightEntry, SourceConnector, SourceType } from '@/types'
 import { useSettingsStore } from './settings'
+import {
+  readBrowserCache,
+  writeBrowserCache,
+  readAllCachedEntries,
+  pruneObsoleteProjects,
+  sanitizeSince,
+} from '@/utils/browser-cache'
 
 export const useProjectsStore = defineStore('projects', () => {
   const projects = ref<ProjectConfig[]>([])
   const entries = ref<InsightEntry[]>([])
   const loading = ref(false)
+  const loadingProjects = ref<Set<string>>(new Set())
   const connectors = ref<Map<SourceType, SourceConnector>>(new Map())
 
   const settingsStore = useSettingsStore()
+
+  // Generation counter — incremented on every loadAll() call.
+  // Each call captures its own seq; after every await it checks
+  // loadSeq === seq to bail if a newer call has superseded it.
+  let loadSeq = 0
 
   /** Register a source connector */
   function registerConnector(connector: SourceConnector) {
     connectors.value.set(connector.type, connector)
   }
 
-  /** Projects sorted by name */
+  /** Projects sorted by name, excluding untracked */
   const sortedProjects = computed(() =>
-    [...projects.value].sort((a, b) => a.name.localeCompare(b.name))
+    [...projects.value]
+      .filter(p => settingsStore.isProjectTracked(p.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
   )
 
-  /** Filtered entries based on enabled sources */
+  /** Filtered entries based on enabled sources and tracked projects */
   const filteredEntries = computed(() =>
-    entries.value.filter(e => settingsStore.isSourceEnabled(e.meta.source))
+    entries.value.filter(
+      e => settingsStore.isSourceEnabled(e.meta.source) && settingsStore.isProjectTracked(e.projectId)
+    )
   )
 
   /** Entries for a specific project, filtered */
@@ -38,54 +55,129 @@ export const useProjectsStore = defineStore('projects', () => {
     )
   )
 
-  /** Fetch all entries for all projects from all enabled connectors */
-  async function fetchAll() {
+  /** Discover projects by scanning root folders via the local API. */
+  async function discoverProjects() {
+    const folders = settingsStore.rootFolders
+    if (folders.length === 0) {
+      projects.value = []
+      return
+    }
+    try {
+      const params = new URLSearchParams({ rootFolders: JSON.stringify(folders) })
+      const res = await fetch(`/api/discover-projects?${params}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      projects.value = await res.json()
+    } catch (err) {
+      console.warn('[DevPulse] Project discovery failed:', err)
+    }
+  }
+
+  /**
+   * Two-phase load:
+   *   1. Instantly populate from browser localStorage cache (zero latency)
+   *   2. Discover projects (server file-cache: 5 min TTL)
+   *   3. Incremental fetch per project × connector — parallel, progressive
+   *      Each project card reveals as soon as all its connectors return.
+   *
+   * Navigation-safe: a generation counter (loadSeq) cancels any in-flight
+   * load the moment a newer loadAll() call starts (e.g. from settings change).
+   */
+  async function loadAll() {
+    const seq = ++loadSeq
     loading.value = true
     try {
-      const allEntries: InsightEntry[] = []
+      // Phase 1 — show stale-while-revalidate data immediately
+      const cached = readAllCachedEntries()
+      if (cached.length > 0) {
+        entries.value = cached
+      }
 
-      for (const project of projects.value) {
+      // Phase 2 — discover projects (server file-cache: 5 min TTL)
+      await discoverProjects()
+      if (loadSeq !== seq) return
+
+      // Prune localStorage entries for projects that no longer exist,
+      // and remove their stale entries from the live store.
+      const knownIds = new Set(projects.value.map(p => p.id))
+      pruneObsoleteProjects(knownIds)
+      entries.value = entries.value.filter(e => knownIds.has(e.projectId))
+
+      // Phase 3 — parallel per-project progressive fetch
+      // Each project independently fetches all its connectors and reveals
+      // its card the moment it finishes (instead of all revealing at once).
+      loadingProjects.value = new Set(projects.value.map(p => p.id))
+
+      await Promise.all(projects.value.map(async (project) => {
         for (const [type, connector] of connectors.value) {
           if (!settingsStore.isSourceEnabled(type)) continue
+          if (loadSeq !== seq) return
+
+          const cache = readBrowserCache(project.id, type)
+          // Sanitize: treat future timestamps and corrupt values as a full fetch
+          const since = sanitizeSince(cache?.cachedAt)
+
           try {
-            const projectEntries = await connector.fetch(project)
-            // Validate entries
-            for (const entry of projectEntries) {
-              const result = connector.validate(entry)
-              if (result.valid) {
-                allEntries.push(entry)
-              }
+            const fresh = await connector.fetch(project, since)
+            if (loadSeq !== seq) return
+
+            // Validate new entries
+            const valid = fresh.filter(e => connector.validate(e).valid)
+
+            if (cache) {
+              // Merge: deduplicate by id, new entries win on conflict
+              const merged = new Map(cache.entries.map(e => [e.id, e]))
+              for (const e of valid) merged.set(e.id, e)
+              const mergedArr = [...merged.values()]
+              writeBrowserCache(project.id, type, mergedArr)
+              // Splice this project+source slice into the live store
+              entries.value = [
+                ...entries.value.filter(
+                  e => !(e.projectId === project.id && e.meta.source === type),
+                ),
+                ...mergedArr,
+              ]
+            } else {
+              writeBrowserCache(project.id, type, valid)
+              entries.value = [...entries.value, ...valid]
             }
           } catch (err) {
             console.warn(`[DevPulse] Connector ${type} failed for ${project.name}:`, err)
           }
         }
-      }
 
-      entries.value = allEntries
+        // All connectors done for this project — reveal its card
+        if (loadSeq === seq) {
+          loadingProjects.value = new Set(
+            [...loadingProjects.value].filter(id => id !== project.id)
+          )
+        }
+      }))
     } finally {
-      loading.value = false
+      // Only clear the global loading flag if we are still the active load.
+      // A superseded load must NOT clear the flag set by the newer call.
+      if (loadSeq === seq) {
+        loading.value = false
+      }
     }
   }
 
-  /** Fetch entries for a single project */
+  /** Refresh a single project (full re-fetch, updates browser cache). */
   async function fetchProject(projectId: string) {
     const project = projects.value.find(p => p.id === projectId)
     if (!project) return
 
-    // Remove old entries for this project
-    entries.value = entries.value.filter(e => e.projectId !== projectId)
-
     for (const [type, connector] of connectors.value) {
       if (!settingsStore.isSourceEnabled(type)) continue
       try {
-        const projectEntries = await connector.fetch(project)
-        for (const entry of projectEntries) {
-          const result = connector.validate(entry)
-          if (result.valid) {
-            entries.value.push(entry)
-          }
-        }
+        const fresh = await connector.fetch(project) // no `since` → full fetch
+        const valid = fresh.filter(e => connector.validate(e).valid)
+        writeBrowserCache(project.id, type, valid)
+        entries.value = [
+          ...entries.value.filter(
+            e => !(e.projectId === projectId && e.meta.source === type),
+          ),
+          ...valid,
+        ]
       } catch (err) {
         console.warn(`[DevPulse] Connector ${type} failed for ${project.name}:`, err)
       }
@@ -96,13 +188,15 @@ export const useProjectsStore = defineStore('projects', () => {
     projects,
     entries,
     loading,
+    loadingProjects,
     connectors,
     sortedProjects,
     filteredEntries,
     timelineEntries,
     entriesForProject,
     registerConnector,
-    fetchAll,
     fetchProject,
+    discoverProjects,
+    loadAll,
   }
 })

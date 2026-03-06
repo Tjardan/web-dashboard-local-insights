@@ -49,8 +49,8 @@ export interface SourceConnector {
   icon: string
   /** Whether this source is currently enabled */
   enabled: boolean
-  /** Fetch entries for a project */
-  fetch(project: ProjectConfig): Promise<InsightEntry[]>
+  /** Fetch entries for a project. Pass `since` (ISO-8601) for incremental updates. */
+  fetch(project: ProjectConfig, since?: string): Promise<InsightEntry[]>
   /** Validate a single entry */
   validate(entry: InsightEntry): ValidationResult
 }
@@ -81,6 +81,8 @@ export interface RootFolder {
 export interface AppSettings {
   rootFolders: RootFolder[]
   enabledSources: Record<SourceType, boolean>
+  /** Project IDs explicitly hidden from dashboard & timeline */
+  untrackedProjects?: string[]
 }
 
 /** Chat session from VS Code chat history */

@@ -16,6 +16,7 @@ function loadSettings(): AppSettings {
       chat: true,
       'file-change': true,
     },
+    untrackedProjects: [],
   }
 }
 
@@ -57,6 +58,20 @@ export const useSettingsStore = defineStore('settings', () => {
     return settings.value.enabledSources[source] !== false
   }
 
+  function toggleProjectTracking(projectId: string) {
+    const current = settings.value.untrackedProjects ?? []
+    if (current.includes(projectId)) {
+      settings.value.untrackedProjects = current.filter(id => id !== projectId)
+    } else {
+      settings.value.untrackedProjects = [...current, projectId]
+    }
+    saveSettings(settings.value)
+  }
+
+  function isProjectTracked(projectId: string): boolean {
+    return !(settings.value.untrackedProjects ?? []).includes(projectId)
+  }
+
   return {
     settings,
     rootFolders,
@@ -66,5 +81,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateRootFolder,
     toggleSource,
     isSourceEnabled,
+    toggleProjectTracking,
+    isProjectTracked,
   }
 })
