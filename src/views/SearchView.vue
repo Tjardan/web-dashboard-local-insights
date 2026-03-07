@@ -9,7 +9,10 @@ import {
   clearGithubToken,
   getGithubToken,
   CHAT_MODELS,
+  CLAUDE_MODELS,
+  GITHUB_CHAT_MODELS,
   getChatModel,
+  CHAT_MODEL_DEFAULT,
 } from "@/search/github-models";
 
 const searchStore = useSearchStore();
@@ -57,8 +60,8 @@ const timeRangeOptions: Array<{ label: string; value: number | undefined }> = [
   { label: "Alles", value: undefined },
 ];
 
-// Model selector
-const askModel = ref<string>("gpt-4o-mini");
+// Model selector — default is Claude Sonnet 4.6 (via Copilot SDK)
+const askModel = ref<string>(CHAT_MODEL_DEFAULT);
 const selectedModelInfo = computed(() => getChatModel(askModel.value));
 
 function fmtTokens(n: number): string {
@@ -479,19 +482,36 @@ watch(
         <div class="ask-model-row">
           <span class="ask-model-row__label">Model</span>
           <div class="ask-model-chips">
-            <button
-              v-for="m in CHAT_MODELS"
-              :key="m.id"
-              class="ask-model-chip"
-              :class="{ 'ask-model-chip--active': askModel === m.id }"
-              :title="m.note"
-              @click="askModel = m.id"
-            >
-              <span class="ask-model-chip__name">{{ m.label }}</span>
-              <span class="ask-model-chip__tokens">{{
-                fmtTokens(m.inputTokenLimit)
-              }}</span>
-            </button>
+            <!-- Claude group (via Copilot proxy, 200k context) -->
+            <div class="ask-model-group">
+              <span class="ask-model-group__label">Claude</span>
+              <button
+                v-for="m in CLAUDE_MODELS"
+                :key="m.id"
+                class="ask-model-chip ask-model-chip--claude"
+                :class="{ 'ask-model-chip--active': askModel === m.id }"
+                :title="m.note"
+                @click="askModel = m.id"
+              >
+                <span class="ask-model-chip__name">{{ m.label }}</span>
+                <span class="ask-model-chip__tokens">{{ fmtTokens(m.inputTokenLimit) }}</span>
+              </button>
+            </div>
+            <!-- GitHub Models group -->
+            <div class="ask-model-group ask-model-group--dim">
+              <span class="ask-model-group__label">GitHub Models</span>
+              <button
+                v-for="m in GITHUB_CHAT_MODELS"
+                :key="m.id"
+                class="ask-model-chip"
+                :class="{ 'ask-model-chip--active': askModel === m.id }"
+                :title="m.note"
+                @click="askModel = m.id"
+              >
+                <span class="ask-model-chip__name">{{ m.label }}</span>
+                <span class="ask-model-chip__tokens">{{ fmtTokens(m.inputTokenLimit) }}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1152,8 +1172,38 @@ watch(
 
 .ask-model-chips {
   display: flex;
-  gap: 0.375rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* Model provider group */
+.ask-model-group {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.ask-model-group__label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: rgba(0, 240, 255, 0.5);
+  padding-right: 0.2rem;
+  white-space: nowrap;
+}
+
+.ask-model-group--dim .ask-model-group__label {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+/* Separator between groups */
+.ask-model-group + .ask-model-group {
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border-dim);
 }
 
 .ask-model-chip {
@@ -1183,6 +1233,17 @@ watch(
   color: var(--neon-cyan);
   border-color: rgba(0, 240, 255, 0.55);
   background: rgba(0, 240, 255, 0.07);
+}
+
+/* Claude chips: purple accent */
+.ask-model-chip--claude:hover {
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.ask-model-chip--claude.ask-model-chip--active {
+  color: #c084fc;
+  border-color: rgba(139, 92, 246, 0.65);
+  background: rgba(139, 92, 246, 0.08);
 }
 
 .ask-model-chip__name {

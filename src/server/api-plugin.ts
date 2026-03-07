@@ -8,6 +8,9 @@ import { readdir, stat } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { listSessions, readSession } from "@devpulse/chat-mcp";
 import { cacheRead, cacheWrite, isCacheFresh } from "./cache.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — @github/copilot-sdk is a JS-only package without bundled types
+import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
 function exec(cmd: string, args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -116,6 +119,24 @@ function parseGitLog(raw: string, sep: string) {
   }
   if (cur) commits.push(cur);
   return commits;
+}
+
+// ── Copilot SDK client ────────────────────────────────────────────────────────
+// Uses @github/copilot-sdk (same as robomo/agent-studio).
+// Auth is handled by the SDK via GITHUB_TOKEN env var or the gh CLI.
+// The client is lazily initialised on first use and kept alive for the
+// lifetime of the Vite dev-server process.
+
+let copilotClient: typeof CopilotClient | null = null;
+
+async function getCopilotClient(): Promise<typeof CopilotClient> {
+  if (copilotClient) return copilotClient;
+  // Do NOT pass githubToken — use the gh CLI auth (same as robomo/agent-studio).
+  // Passing a raw PAT causes 400 on listModels; the SDK's native auth flow works.
+  copilotClient = new CopilotClient({ logLevel: "warning" });
+  await copilotClient.start();
+  console.log("[copilot-sdk] Client started");
+  return copilotClient;
 }
 
 export function devPulseApiPlugin(): Plugin {
@@ -310,6 +331,77 @@ export function devPulseApiPlugin(): Plugin {
                 res,
                 `chat-session failed: ${(err as Error).message}`,
                 500,
+              );
+            }
+          }
+
+          // ── Copilot SDK proxy ────────────────────────────────────────────────
+          // Accepts OpenAI-format POST (model, messages[]) and routes through
+          // @github/copilot-sdk — same auth path as robomo/agent-studio.
+          // Token comes from GITHUB_TOKEN env var (or gh CLI); no PAT needed
+          // in the browser request.
+          if (
+            url.pathname === "/api/copilot-proxy/chat/completions" &&
+            req.method === "POST"
+          ) {
+            try {
+              const rawBody = await new Promise<string>((resolve, reject) => {
+                let data = "";
+                req.on("data", (chunk: Buffer) => { data += chunk.toString(); });
+                req.on("end", () => resolve(data));
+                req.on("error", reject);
+              });
+
+              const { model, messages } = JSON.parse(rawBody) as {
+                model: string;
+                messages: Array<{ role: string; content: string }>;
+              };
+
+              // Split messages into system prompt + user prompt
+              const systemMsg = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+              const userMsg = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n\n");
+
+              const client = await getCopilotClient();
+
+              // Note: do not set `model` in sessionConfig unless STUDIO_MODEL
+              // is configured — the SDK validates the model ID via listModels()
+              // and will throw 400 for IDs it doesn't recognise at that layer.
+              // Let the SDK use its default (claude-sonnet-4.6) unless overridden.
+              const studioModel = process.env.STUDIO_MODEL;
+              const sessionConfig: Record<string, unknown> = {
+                clientName: "devpulse-ai",
+                streaming: true,
+                onPermissionRequest: approveAll,
+              };
+              if (studioModel) {
+                sessionConfig.model = studioModel;
+              }
+              if (systemMsg) {
+                sessionConfig.systemMessage = { mode: "replace", content: systemMsg };
+              }
+
+              const session = await client.createSession(sessionConfig);
+              console.log(`[copilot-sdk] Session created, model=${studioModel ?? "default"}, sending prompt...`);
+
+              const result = await session.sendAndWait({ prompt: userMsg });
+              const content: string = result?.data?.content ?? "";
+              console.log(`[copilot-sdk] Response received (${content.length} chars)`);
+
+              try { await session.destroy(); } catch { /* ignore */ }
+
+              // Return in OpenAI-compatible format so chatComplete() works unchanged
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({
+                choices: [{ message: { role: "assistant", content } }],
+                model,
+                usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+              }));
+              return;
+            } catch (err) {
+              return sendError(
+                res,
+                `Copilot SDK proxy failed: ${(err as Error).message}`,
+                502,
               );
             }
           }

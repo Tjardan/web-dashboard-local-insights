@@ -1,20 +1,21 @@
 /**
- * GitHub Models API client.
+ * AI provider client — GitHub Models + GitHub Copilot API.
  *
  * Provides two capabilities:
- *   1. Text embeddings  — via `text-embedding-3-small` (1536-dim)
- *   2. Chat completions — via `gpt-4o-mini` (fast, cheap) or configurable model
+ *   1. Text embeddings  — via `text-embedding-3-small` on GitHub Models (1536-dim)
+ *   2. Chat completions — two endpoints:
+ *        • GitHub Models:  https://models.inference.ai.azure.com  (GPT-4o, Llama, …)
+ *        • Copilot API:    /api/copilot-proxy  (→ @github/copilot-sdk, Claude family)
+ *          The proxy uses the SDK — auth via GITHUB_TOKEN env var on the server.
  *
- * The API is OpenAI-compatible, hosted at https://models.inference.ai.azure.com
- * Authentication: GitHub Personal Access Token (read:models scope sufficient).
- *
- * Token is stored only in localStorage under key `devpulse-gh-token` and is
- * never sent to any server other than models.inference.ai.azure.com.
+ * Authentication: GitHub PAT in localStorage used for GitHub Models only.
  */
 
 export const GITHUB_MODELS_ENDPOINT = "https://models.inference.ai.azure.com";
+/** Local Vite proxy that uses @github/copilot-sdk server-side (avoids CORS). */
+export const COPILOT_ENDPOINT = "/api/copilot-proxy";
 export const EMBEDDING_MODEL = "text-embedding-3-small";
-export const CHAT_MODEL_DEFAULT = "gpt-4o-mini";
+export const CHAT_MODEL_DEFAULT = "claude-sonnet-4.6";
 
 // ─── Model catalogue ─────────────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ export interface ChatModelInfo {
   label: string;
   /** Provider / family */
   provider: string;
-  /** Hard input-token limit enforced by GitHub Models */
+  /** Hard input-token limit enforced by the API */
   inputTokenLimit: number;
   /** Recommended max output tokens */
   outputTokenLimit: number;
@@ -33,17 +34,61 @@ export interface ChatModelInfo {
   inputCharLimit: number;
   /** Brief capability note shown in the picker */
   note: string;
+  /**
+   * Override endpoint for this model.
+   * Absent → GITHUB_MODELS_ENDPOINT. Set to COPILOT_ENDPOINT for Claude models.
+   */
+  endpoint?: string;
 }
 
-/**
- * GitHub Models per-request token limits (confirmed empirically, March 2026).
- * These are hard API caps — unrelated to subscription tier.
- * Copilot Pro/Enterprise only increases rate limits (req/min), not context size.
- *
- * inputCharLimit = floor(inputTokenLimit * 3.5) — conservative char-to-token
- * ratio that leaves headroom for system prompt + answer wrapper.
- */
-export const CHAT_MODELS: ChatModelInfo[] = [
+// ─── Claude models via GitHub Copilot SDK ────────────────────────────────────
+//
+// Routed via /api/copilot-proxy which uses @github/copilot-sdk on the server.
+// Auth: gh CLI (same as robomo) — no githubToken needed in the browser.
+// Available model IDs confirmed via client.listModels() on 2026-03-07:
+//   claude-sonnet-4.6, claude-sonnet-4.5, claude-haiku-4.5,
+//   claude-opus-4.6, claude-opus-4.5
+export const CLAUDE_MODELS: ChatModelInfo[] = [
+  {
+    id: "claude-sonnet-4.6",
+    label: "Claude Sonnet 4.6",
+    provider: "Anthropic",
+    inputTokenLimit: 200_000,
+    outputTokenLimit: 16_000,
+    inputCharLimit: Math.floor(200_000 * 3.5),
+    note: "Actueel standaard Copilot model",
+    endpoint: COPILOT_ENDPOINT,
+  },
+  {
+    id: "claude-opus-4.6",
+    label: "Claude Opus 4.6",
+    provider: "Anthropic",
+    inputTokenLimit: 200_000,
+    outputTokenLimit: 32_000,
+    inputCharLimit: Math.floor(200_000 * 3.5),
+    note: "Krachtigst",
+    endpoint: COPILOT_ENDPOINT,
+  },
+  {
+    id: "claude-haiku-4.5",
+    label: "Claude Haiku 4.5",
+    provider: "Anthropic",
+    inputTokenLimit: 200_000,
+    outputTokenLimit: 8_192,
+    inputCharLimit: Math.floor(200_000 * 3.5),
+    note: "Snel",
+    endpoint: COPILOT_ENDPOINT,
+  },
+];
+
+// ─── GitHub Models — per-request token limits ────────────────────────────────
+//
+// Confirmed empirically (March 2026). These are hard API caps unrelated to
+// subscription. Copilot Pro/Enterprise only raises rate limits, not context size.
+//
+// inputCharLimit = floor(inputTokenLimit * 3.5) — conservative char-to-token
+// ratio that leaves headroom for system prompt + answer wrapper.
+export const GITHUB_CHAT_MODELS: ChatModelInfo[] = [
   {
     id: "gpt-4o-mini",
     label: "GPT-4o mini",
@@ -109,8 +154,12 @@ export const CHAT_MODELS: ChatModelInfo[] = [
   },
 ];
 
+/** All available chat models — Claude (Copilot) first, then GitHub Models. */
+export const CHAT_MODELS: ChatModelInfo[] = [...CLAUDE_MODELS, ...GITHUB_CHAT_MODELS];
+
+/** Look up a model by id; falls back to Claude 3.5 Haiku (the default). */
 export function getChatModel(id: string): ChatModelInfo {
-  return CHAT_MODELS.find((m) => m.id === id) ?? CHAT_MODELS[0];
+  return CHAT_MODELS.find((m) => m.id === id) ?? CLAUDE_MODELS[2];
 }
 
 // ─── Token management ─────────────────────────────────────────────────────────
@@ -122,9 +171,12 @@ export function getGithubToken(): string | null {
 }
 
 export function setGithubToken(token: string): void {
-  // Basic validation: GitHub PATs start with ghp_ or github_pat_
+  // Warn on obviously wrong formats, but don't block — Copilot tokens may
+  // differ from classic PAT formats and the API will return a clear 401.
   if (token && !/^(ghp_|github_pat_|ghs_)/.test(token)) {
-    throw new Error("Token does not look like a GitHub Personal Access Token");
+    console.warn(
+      "[DevPulse] Token does not start with a known GitHub PAT prefix — proceeding anyway.",
+    );
   }
   localStorage.setItem(TOKEN_KEY, token);
 }
@@ -226,8 +278,9 @@ export interface ChatCompletionResult {
 }
 
 /**
- * Send a chat completion request to GitHub Models.
- * Returns the full assistant message content.
+ * Send a chat completion request.
+ * Claude models are routed via /api/copilot-proxy (PAT → Copilot token exchange).
+ * All other models go directly to GitHub Models.
  */
 export async function chatComplete(
   messages: ChatMessage[],
@@ -235,16 +288,20 @@ export async function chatComplete(
 ): Promise<ChatCompletionResult> {
   const token = getGithubToken();
   if (!token)
-    throw new Error("GitHub token not configured — set it in Settings");
+    throw new Error("GitHub token niet geconfigureerd — stel in via Settings");
 
-  const response = await fetch(`${GITHUB_MODELS_ENDPOINT}/chat/completions`, {
+  const modelId = opts.model ?? CHAT_MODEL_DEFAULT;
+  const modelInfo = getChatModel(modelId);
+  const endpoint = modelInfo.endpoint ?? GITHUB_MODELS_ENDPOINT;
+
+  const response = await fetch(`${endpoint}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      model: opts.model ?? CHAT_MODEL_DEFAULT,
+      model: modelId,
       messages,
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens ?? 2048,
@@ -253,7 +310,8 @@ export async function chatComplete(
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`GitHub Models chat failed (${response.status}): ${body}`);
+    const providerLabel = endpoint.includes("copilot-proxy") ? "Copilot API" : "GitHub Models";
+    throw new Error(`${providerLabel} chat failed (${response.status}): ${body}`);
   }
 
   const data = (await response.json()) as {
