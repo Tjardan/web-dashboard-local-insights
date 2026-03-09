@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { useElementSize } from "@vueuse/core";
+import { highlightText } from "@/utils/highlight-text";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface ToolCallInfo {
@@ -42,6 +43,7 @@ interface KvEntry {
 const props = defineProps<{
   turn: ConversationTurn;
   initiallyExpanded?: boolean;
+  searchQuery?: string;
 }>();
 
 const expandedTools = ref(new Set<number>());
@@ -283,6 +285,23 @@ function formatSimple(value: unknown): string {
   if (Array.isArray(value)) return value.join(", ");
   return JSON.stringify(value, null, 2);
 }
+
+// ── Search highlighting helpers ─────────────────────────────────────
+function hlText(text: string): string {
+  return props.searchQuery?.trim()
+    ? highlightText(text, props.searchQuery)
+    : text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Render a paragraph (array of lines) as safe HTML with highlights and <br> separators. */
+function hlPara(lines: string[]): string {
+  const joined = lines.join("\n");
+  const escaped = props.searchQuery?.trim()
+    ? highlightText(joined, props.searchQuery)
+    : joined.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped.replace(/\n/g, "<br>");
+}
+
 </script>
 
 <template>
@@ -300,8 +319,8 @@ function formatSimple(value: unknown): string {
         <span
           v-if="turnCollapsed && turn.userMessage"
           class="chat-turn__preview"
-          >{{ userMsgPreview(turn.userMessage) }}</span
-        >
+          v-html="hlText(userMsgPreview(turn.userMessage))"
+        />
       </div>
       <div class="chat-turn__actions">
         <span v-if="turn.timestamp" class="chat-turn__time">{{
@@ -335,7 +354,7 @@ function formatSimple(value: unknown): string {
         <!-- User message -->
         <div class="chat-block chat-block--user">
           <span class="chat-block__role">user</span>
-          <p class="chat-block__text">{{ turn.userMessage || "—" }}</p>
+          <p class="chat-block__text" v-html="hlText(turn.userMessage || '—')" />
         </div>
 
         <!-- Tool calls -->
@@ -614,11 +633,8 @@ function formatSimple(value: unknown): string {
                   v-for="(para, pi) in textToParagraphs(seg.content)"
                   :key="pi"
                   class="chat-para"
-                >
-                  <template v-for="(line, li) in para" :key="li"
-                    >{{ line }}<br v-if="li < para.length - 1"
-                  /></template>
-                </p>
+                  v-html="hlPara(para)"
+                />
               </div>
               <div v-else class="code-block">
                 <div class="code-block__bar">
@@ -707,21 +723,26 @@ function formatSimple(value: unknown): string {
   justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.15rem;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 0.2rem 0.3rem;
+  width: calc(100% + 0.6rem);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0.35rem 0.55rem;
   margin-left: -0.3rem;
   cursor: pointer;
   text-align: left;
-  border-radius: 4px;
+  border-radius: 5px;
   color: inherit;
   font: inherit;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.2s;
 }
 
 .chat-turn__header:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(0, 240, 255, 0.06);
+  border-color: rgba(0, 240, 255, 0.22);
+}
+
+.chat-turn__header:hover .chat-turn__chevron {
+  color: var(--neon-cyan);
 }
 
 .chat-turn__meta {
@@ -784,10 +805,10 @@ function formatSimple(value: unknown): string {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.1rem;
-  height: 1.1rem;
+  width: 1.3rem;
+  height: 1.3rem;
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: rgba(0, 240, 255, 0.5);
   transition:
     transform 0.2s var(--ease-out-expo),
     color 0.15s;
