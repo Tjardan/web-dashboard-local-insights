@@ -104,8 +104,14 @@ export interface TeamsConfig {
 export interface AppSettings {
   rootFolders: RootFolder[];
   enabledSources: Record<SourceType, boolean>;
-  /** Project IDs explicitly hidden from dashboard & timeline */
+  /** @deprecated opt-out list, replaced by trackedProjects */
   untrackedProjects?: string[];
+  /**
+   * Project IDs explicitly shown in dashboard & timeline (opt-in).
+   * Undefined means the legacy opt-out model is still active (untrackedProjects).
+   * An empty array means no projects are tracked yet.
+   */
+  trackedProjects?: string[];
   /** Max width (px) of the main content area. Default 1200. */
   maxContentWidth?: number;
   /** Active UI theme. Default: 'cyberpunk' */

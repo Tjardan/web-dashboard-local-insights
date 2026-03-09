@@ -109,6 +109,10 @@ export const useProjectsStore = defineStore("projects", () => {
       await discoverProjects();
       if (loadSeq !== seq) return;
 
+      // One-time migration: switch existing installs to opt-in tracking model.
+      // New installs already have trackedProjects: [] from loadSettings() default.
+      settingsStore.migrateToOptInTracking(projects.value.map((p) => p.id));
+
       // Prune localStorage entries for projects that no longer exist,
       // and remove their stale entries from the live store.
       const knownIds = new Set(projects.value.map((p) => p.id));
@@ -120,12 +124,16 @@ export const useProjectsStore = defineStore("projects", () => {
       entries.value = entries.value.filter((e) => knownIds.has(e.projectId));
 
       // Phase 3 — parallel per-project progressive fetch
+      // Only tracked projects are fetched; untracked ones load on first track.
       // Each project independently fetches all its connectors and reveals
       // its card the moment it finishes (instead of all revealing at once).
-      loadingProjects.value = new Set(projects.value.map((p) => p.id));
+      const trackedProjects = projects.value.filter((p) =>
+        settingsStore.isProjectTracked(p.id),
+      );
+      loadingProjects.value = new Set(trackedProjects.map((p) => p.id));
 
       await Promise.all(
-        projects.value.map(async (project) => {
+        trackedProjects.map(async (project) => {
           for (const [type, connector] of connectors.value) {
             if (!settingsStore.isSourceEnabled(type)) continue;
             if (loadSeq !== seq) return;
@@ -227,6 +235,38 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
+  /**
+   * Toggle tracking for a project.  When a project is newly tracked and has
+   * no cached data yet, automatically triggers a first-time fetch so the card
+   * populates immediately without requiring a full loadAll().
+   */
+  async function trackProject(projectId: string) {
+    const wasTracked = settingsStore.isProjectTracked(projectId);
+    settingsStore.toggleProjectTracking(projectId);
+    const isNowTracked = settingsStore.isProjectTracked(projectId);
+
+    if (!wasTracked && isNowTracked) {
+      const project = projects.value.find((p) => p.id === projectId);
+      if (!project) return;
+
+      // Check if any connector already has a cache entry for this project.
+      const hasCachedData = [...connectors.value.keys()].some(
+        (type) => readBrowserCache(projectId, type) !== null,
+      );
+
+      if (!hasCachedData) {
+        // First time ever tracked — show skeleton while fetching.
+        loadingProjects.value = new Set([...loadingProjects.value, projectId]);
+        await fetchProject(projectId);
+        loadingProjects.value = new Set(
+          [...loadingProjects.value].filter((id) => id !== projectId),
+        );
+      }
+      // If there is a cache, data is already in the store (loaded at startup
+      // from readAllCachedEntries). filteredEntries will include it immediately.
+    }
+  }
+
   /** Refresh a single project (full re-fetch, updates browser cache). */
   async function fetchProject(projectId: string) {
     const project = projects.value.find((p) => p.id === projectId);
@@ -264,6 +304,7 @@ export const useProjectsStore = defineStore("projects", () => {
     timelineEntries,
     entriesForProject,
     registerConnector,
+    trackProject,
     fetchProject,
     discoverProjects,
     loadAll,

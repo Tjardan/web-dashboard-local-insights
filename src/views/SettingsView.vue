@@ -506,7 +506,7 @@ function removeFolder(path: string) {
             <input
               type="checkbox"
               :checked="settingsStore.isProjectTracked(project.id)"
-              @change="settingsStore.toggleProjectTracking(project.id)"
+              @change="projectsStore.trackProject(project.id)"
             />
             <span class="slider" />
           </label>
@@ -962,6 +962,8 @@ function removeFolder(path: string) {
   margin: 0.4rem 0 0;
   color: var(--neon-green);
 }
+
+.teams-status {
   display: flex;
   align-items: center;
   gap: 0.875rem;

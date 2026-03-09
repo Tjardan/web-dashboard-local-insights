@@ -114,7 +114,7 @@ function openProject(id: string) {
                   ? 'Hide from dashboard and timeline'
                   : 'Show in dashboard and timeline'
               "
-              @click.stop="settingsStore.toggleProjectTracking(project.id)"
+              @click.stop="projectsStore.trackProject(project.id)"
             >
               {{
                 settingsStore.isProjectTracked(project.id) ? "untrack" : "track"

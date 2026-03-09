@@ -46,6 +46,7 @@ function loadSettings(): AppSettings {
   } catch {
     /* ignore parse errors */
   }
+  // Fresh install: start in opt-in mode with no projects tracked yet.
   return {
     rootFolders: [],
     enabledSources: {
@@ -53,6 +54,7 @@ function loadSettings(): AppSettings {
       chat: true,
     },
     untrackedProjects: [],
+    trackedProjects: [],
     maxContentWidth: 1200,
   };
 }
@@ -115,19 +117,44 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   function toggleProjectTracking(projectId: string) {
-    const current = settings.value.untrackedProjects ?? [];
-    if (current.includes(projectId)) {
-      settings.value.untrackedProjects = current.filter(
-        (id) => id !== projectId,
-      );
+    if (settings.value.trackedProjects !== undefined) {
+      // Opt-in model: add/remove from tracked list
+      const current = settings.value.trackedProjects;
+      settings.value.trackedProjects = current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId];
     } else {
-      settings.value.untrackedProjects = [...current, projectId];
+      // Legacy opt-out model
+      const current = settings.value.untrackedProjects ?? [];
+      settings.value.untrackedProjects = current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId];
     }
     saveSettings(settings.value);
   }
 
   function isProjectTracked(projectId: string): boolean {
+    if (settings.value.trackedProjects !== undefined) {
+      return settings.value.trackedProjects.includes(projectId);
+    }
+    // Legacy fallback (existing installs before migration runs)
     return !(settings.value.untrackedProjects ?? []).includes(projectId);
+  }
+
+  /**
+   * One-time migration from opt-out to opt-in tracking model.
+   * Called after project discovery so we have the full project list.
+   * - Already-migrated installs (trackedProjects defined): no-op.
+   * - Existing installs: preserves current tracked state, then any future
+   *   newly-discovered project defaults to untracked (not in trackedProjects).
+   */
+  function migrateToOptInTracking(allProjectIds: string[]) {
+    if (settings.value.trackedProjects !== undefined) return;
+    // Reconstruct which projects were explicitly tracked under the old model
+    settings.value.trackedProjects = allProjectIds.filter(
+      (id) => !(settings.value.untrackedProjects ?? []).includes(id),
+    );
+    saveSettings(settings.value);
   }
 
   function updateTeamsConfig(config: TeamsConfig) {
@@ -158,6 +185,7 @@ export const useSettingsStore = defineStore("settings", () => {
     isSourceEnabled,
     toggleProjectTracking,
     isProjectTracked,
+    migrateToOptInTracking,
     updateTeamsConfig,
     clearTeamsConfig,
     updateTeamsFilePath,
