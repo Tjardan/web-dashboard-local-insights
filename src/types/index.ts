@@ -55,6 +55,12 @@ export interface SourceConnector {
   icon: string;
   /** Whether this source is currently enabled */
   enabled: boolean;
+  /**
+   * If true, this connector is not project-scoped.
+   * It is called once per sync cycle with a synthetic ProjectConfig
+   * and its entries use projectId "_<type>" (e.g. "_teams").
+   */
+  global?: boolean;
   /** Fetch entries for a project. Pass `since` (ISO-8601) for incremental updates. */
   fetch(project: ProjectConfig, since?: string): Promise<InsightEntry[]>;
   /** Validate a single entry */
@@ -86,6 +92,14 @@ export interface RootFolder {
 /** Available UI themes */
 export type AppTheme = "cyberpunk" | "sys-nexus";
 
+/** Azure AD app registration config for Microsoft Teams integration */
+export interface TeamsConfig {
+  /** Application (client) ID from Azure AD app registration */
+  clientId: string;
+  /** Directory (tenant) ID, or "common" for multi-tenant */
+  tenantId: string;
+}
+
 /** App settings (persisted to local JSON) */
 export interface AppSettings {
   rootFolders: RootFolder[];
@@ -96,6 +110,10 @@ export interface AppSettings {
   maxContentWidth?: number;
   /** Active UI theme. Default: 'cyberpunk' */
   activeTheme?: AppTheme;
+  /** Azure AD config for Microsoft Teams integration */
+  teamsConfig?: TeamsConfig;
+  /** Absolute path to the Power Automate JSON export file */
+  teamsFilePath?: string;
 }
 
 /** Chat session from VS Code chat history */

@@ -1,6 +1,12 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import type { AppSettings, AppTheme, RootFolder, SourceType } from "@/types";
+import type {
+  AppSettings,
+  AppTheme,
+  RootFolder,
+  SourceType,
+  TeamsConfig,
+} from "@/types";
 
 const SETTINGS_KEY = "devpulse-settings";
 
@@ -124,6 +130,21 @@ export const useSettingsStore = defineStore("settings", () => {
     return !(settings.value.untrackedProjects ?? []).includes(projectId);
   }
 
+  function updateTeamsConfig(config: TeamsConfig) {
+    settings.value.teamsConfig = config;
+    saveSettings(settings.value);
+  }
+
+  function clearTeamsConfig() {
+    settings.value.teamsConfig = undefined;
+    saveSettings(settings.value);
+  }
+
+  function updateTeamsFilePath(path: string) {
+    settings.value.teamsFilePath = path || undefined;
+    saveSettings(settings.value);
+  }
+
   return {
     settings,
     rootFolders,
@@ -137,6 +158,9 @@ export const useSettingsStore = defineStore("settings", () => {
     isSourceEnabled,
     toggleProjectTracking,
     isProjectTracked,
+    updateTeamsConfig,
+    clearTeamsConfig,
+    updateTeamsFilePath,
     setMaxContentWidth,
     setTheme,
   };
