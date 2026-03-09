@@ -410,9 +410,9 @@ html[data-theme="sys-nexus"] {
   --neon-green: #00ff88;
 
   /* Text */
-  --text-primary: #a8cce0;
-  --text-secondary: #3d6070;
-  --text-muted: #264050;
+  --text-primary: #c4dff0;
+  --text-secondary: #6a9ab5;
+  --text-muted: #3d6070;
 
   /* Borders & glows */
   --border-dim: rgba(0, 245, 255, 0.08);
@@ -425,7 +425,7 @@ html[data-theme="sys-nexus"] {
 
   /* Effects */
   --scanline-opacity: 0.04;
-  --vignette-opacity: 1;
+  --vignette-opacity: 0.4;
 }
 
 html[data-theme="sys-nexus"] body {
