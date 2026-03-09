@@ -39,6 +39,12 @@ const router = createRouter({
       component: () => import("@/views/SettingsView.vue"),
       meta: { transition: "fade" },
     },
+    {
+      path: "/auth/teams/callback",
+      name: "teams-callback",
+      component: () => import("@/views/TeamsCallbackView.vue"),
+      meta: { transition: "fade" },
+    },
   ],
 });
 

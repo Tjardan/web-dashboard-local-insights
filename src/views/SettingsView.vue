@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { useSettingsStore } from "@/stores/settings";
 import { useProjectsStore } from "@/stores/projects";
 import { getAllConnectors } from "@/connectors";
 import type { RootFolder } from "@/types";
+import { generateCodeVerifier, generateCodeChallenge, buildMsAuthUrl } from "@/utils/pkce";
 
 const settingsStore = useSettingsStore();
 const projectsStore = useProjectsStore();
@@ -14,6 +15,73 @@ const newFolderLabel = ref("");
 const editingFolder = ref<string | null>(null);
 const editPath = ref("");
 const editLabel = ref("");
+
+// ── Teams auth state ────────────────────────────────────────────────────────
+const teamsClientId = ref(settingsStore.settings.teamsConfig?.clientId ?? "");
+const teamsTenantId = ref(settingsStore.settings.teamsConfig?.tenantId ?? "common");
+const teamsAuth = ref<{ authenticated: boolean; userEmail?: string; displayName?: string } | null>(null);
+const teamsAuthLoading = ref(false);
+
+// ── Teams Power Automate file state ─────────────────────────────────────────
+const teamsFilePath = ref(settingsStore.settings.teamsFilePath ?? "");
+const teamsFileMode = ref<"graph" | "file">(
+  settingsStore.settings.teamsFilePath ? "file" : "graph",
+);
+
+async function refreshTeamsAuthStatus() {
+  try {
+    const res = await fetch("/api/teams/auth/status");
+    teamsAuth.value = await res.json();
+  } catch {
+    teamsAuth.value = { authenticated: false };
+  }
+}
+
+async function connectTeams() {
+  const clientId = teamsClientId.value.trim();
+  const tenantId = teamsTenantId.value.trim() || "common";
+  if (!clientId) return;
+
+  settingsStore.updateTeamsConfig({ clientId, tenantId });
+
+  teamsAuthLoading.value = true;
+  try {
+    const verifier = generateCodeVerifier();
+    const challenge = await generateCodeChallenge(verifier);
+    const redirectUri = `${window.location.origin}/auth/teams/callback`;
+
+    // Persist PKCE state across the redirect
+    sessionStorage.setItem("teams_pkce_verifier", verifier);
+    sessionStorage.setItem("teams_client_id", clientId);
+    sessionStorage.setItem("teams_tenant_id", tenantId);
+    sessionStorage.setItem("teams_redirect_uri", redirectUri);
+
+    const authUrl = buildMsAuthUrl({
+      clientId,
+      tenantId,
+      redirectUri,
+      codeChallenge: challenge,
+      scopes: ["User.Read", "ChannelMessage.Read.All", "Chat.Read", "offline_access"],
+    });
+
+    window.location.href = authUrl;
+  } finally {
+    teamsAuthLoading.value = false;
+  }
+}
+
+async function disconnectTeams() {
+  await fetch("/api/teams/auth/revoke", { method: "POST" });
+  teamsAuth.value = { authenticated: false };
+}
+
+function saveTeamsFilePath() {
+  settingsStore.updateTeamsFilePath(teamsFilePath.value.trim());
+}
+
+onMounted(() => {
+  refreshTeamsAuthStatus();
+});
 
 function addFolder() {
   const path = newFolderPath.value.trim();
@@ -241,6 +309,164 @@ function removeFolder(path: string) {
             />
             <span class="slider" />
           </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Microsoft Teams -->
+    <section class="settings__section">
+      <h2 class="section__title">
+        <span class="section__icon">💬</span>
+        Microsoft Teams
+      </h2>
+      <p class="section__desc">
+        Kies hoe je Teams-berichten worden opgehaald.
+      </p>
+
+      <!-- Mode tabs -->
+      <div class="teams-tabs">
+        <button
+          class="teams-tab"
+          :class="{ 'teams-tab--active': teamsFileMode === 'file' }"
+          @click="teamsFileMode = 'file'"
+        >
+          📄 Power Automate (aanbevolen)
+        </button>
+        <button
+          class="teams-tab"
+          :class="{ 'teams-tab--active': teamsFileMode === 'graph' }"
+          @click="teamsFileMode = 'graph'"
+        >
+          🔐 Graph API (Azure AD)
+        </button>
+      </div>
+
+      <!-- ── Power Automate tab ── -->
+      <div v-if="teamsFileMode === 'file'" class="neon-card teams-config">
+        <p class="teams-config__hint" style="margin:0">
+          Een Power Automate-flow schrijft je berichten als JSON-bestand naar OneDrive. De OneDrive sync-client
+          plaatst het bestand lokaal op je schijf. Vul hieronder het lokale pad in.
+        </p>
+
+        <div class="teams-config__row">
+          <label class="teams-config__label">Lokaal bestandspad</label>
+          <input
+            v-model="teamsFilePath"
+            class="neon-input"
+            placeholder="C:\Users\jij\OneDrive\DevPulse\teams-messages.json"
+            autocomplete="off"
+            spellcheck="false"
+            @keyup.enter="saveTeamsFilePath"
+          />
+          <p class="teams-config__hint">
+            Verwacht JSON-formaat: <code class="inline-code">{ "exportedAt": "...", "messages": [...] }</code>
+          </p>
+        </div>
+
+        <div class="teams-config__actions">
+          <button
+            class="neon-btn"
+            :disabled="!teamsFilePath.trim()"
+            @click="saveTeamsFilePath"
+          >
+            <span>Pad opslaan</span>
+          </button>
+          <span
+            v-if="settingsStore.settings.teamsFilePath"
+            class="neon-badge neon-badge--teams-file"
+          >
+            ✓ OPGESLAGEN
+          </span>
+        </div>
+
+        <!-- Power Automate flow instructie -->
+        <details class="pa-guide">
+          <summary class="pa-guide__toggle">Hoe stel ik de Power Automate-flow in?</summary>
+          <div class="pa-guide__body">
+            <ol class="pa-guide__steps">
+              <li>Ga naar <a href="https://make.powerautomate.com" target="_blank" rel="noopener" class="link">make.powerautomate.com</a> en log in met je werkaccount.</li>
+              <li>Klik <strong>+ Maken → Geplande cloudstroom</strong>. Kies een interval (bijv. elk uur).</li>
+              <li>Voeg actie toe: <strong>Microsoft Teams – Get messages from a channel</strong>. Kies je team en kanaal. Herhaal voor meerdere kanalen.</li>
+              <li>Voeg actie toe: <strong>Microsoft Teams – Get messages from a chat</strong> voor 1-op-1 chats.</li>
+              <li>
+                Voeg actie toe: <strong>OneDrive – Create file</strong>.<br />
+                Pad: <code class="inline-code">/DevPulse/teams-messages.json</code><br />
+                Inhoud: stel de volgende JSON samen met de <em>Select</em>-actie:
+                <pre class="pa-guide__code">{
+  "exportedAt": "@{utcNow()}",
+  "messages": @{
+    union(
+      /* kanaalberichten */
+      body('Get_channel_messages')?['value'],
+      /* chatberichten */
+      body('Get_chat_messages')?['value']
+    )
+  }
+}</pre>
+              </li>
+              <li>Veld-mapping per bericht (gebruik <em>Select</em>): <code class="inline-code">id</code>, <code class="inline-code">body/content</code> als <code class="inline-code">body</code>, <code class="inline-code">createdDateTime</code>, <code class="inline-code">lastModifiedDateTime</code>, <code class="inline-code">kind</code> = "channel"/"chat", <code class="inline-code">channelName</code>, <code class="inline-code">teamName</code>, <code class="inline-code">chatName</code>.</li>
+              <li>Sla de flow op en voer hem eenmalig handmatig uit. OneDrive sync plaatst het bestand vervolgens automatisch op je lokale schijf.</li>
+            </ol>
+          </div>
+        </details>
+      </div>
+
+      <!-- ── Graph API tab ── -->
+      <div v-else class="teams-graph-section">
+        <p class="section__desc" style="margin-bottom:0.75rem">
+          Vereist een Azure AD app-registratie. Heeft je organisatie IT-beheerders nodig?
+          Gebruik dan de Power Automate-methode.
+        </p>
+
+        <!-- Auth status banner -->
+        <div
+          v-if="teamsAuth?.authenticated"
+          class="teams-status teams-status--connected neon-card"
+        >
+          <span class="teams-status__dot" />
+          <div class="teams-status__info">
+            <span class="teams-status__name">{{ teamsAuth.displayName }}</span>
+            <span class="teams-status__email">{{ teamsAuth.userEmail }}</span>
+          </div>
+          <button class="neon-btn neon-btn--magenta" @click="disconnectTeams">
+            <span>Verwijder verbinding</span>
+          </button>
+        </div>
+
+        <!-- Config form -->
+        <div v-else class="neon-card teams-config">
+          <div class="teams-config__row">
+            <label class="teams-config__label">Application (Client) ID</label>
+            <input
+              v-model="teamsClientId"
+              class="neon-input"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div class="teams-config__row">
+            <label class="teams-config__label">Directory (Tenant) ID</label>
+            <input
+              v-model="teamsTenantId"
+              class="neon-input"
+              placeholder="common"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <p class="teams-config__hint">
+              Gebruik <code class="inline-code">common</code> of je Tenant ID.
+              Redirect URI voor Azure:
+              <code class="inline-code">{{ `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}/auth/teams/callback` }}</code>
+            </p>
+          </div>
+          <button
+            class="neon-btn"
+            :disabled="!teamsClientId.trim() || teamsAuthLoading"
+            @click="connectTeams"
+          >
+            <span>{{ teamsAuthLoading ? "Bezig…" : "Verbinden met Teams" }}</span>
+          </button>
         </div>
       </div>
     </section>
@@ -646,5 +872,172 @@ function removeFolder(path: string) {
   border: 1px solid rgba(255, 255, 255, 0.12);
   display: inline-block;
   flex-shrink: 0;
+}
+
+/* ── Teams section ───────────────────────────────────────── */
+.teams-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.teams-tab {
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.teams-tab:hover {
+  border-color: var(--neon-yellow);
+  color: var(--text-primary);
+}
+
+.teams-tab--active {
+  border-color: var(--neon-yellow);
+  color: var(--neon-yellow);
+  background: rgba(255, 230, 0, 0.06);
+}
+
+.teams-graph-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.teams-config__actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pa-guide {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+.pa-guide__toggle {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--neon-cyan);
+  user-select: none;
+  list-style: none;
+}
+
+.pa-guide__toggle::-webkit-details-marker { display: none; }
+
+.pa-guide__body {
+  margin-top: 0.75rem;
+}
+
+.pa-guide__steps {
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.pa-guide__steps li strong {
+  color: var(--text-primary);
+}
+
+.pa-guide__code {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.78rem;
+  font-family: monospace;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0.4rem 0 0;
+  color: var(--neon-green);
+}
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+}
+
+.teams-status--connected {
+  border-color: var(--neon-green);
+}
+
+.teams-status__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--neon-green);
+}
+
+.teams-status__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.teams-status__name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.teams-status__email {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.teams-config {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.teams-config__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.teams-config__label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.teams-config__hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.inline-code {
+  font-family: monospace;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.link {
+  color: var(--neon-cyan);
+  text-decoration: none;
+}
+.link:hover {
+  text-decoration: underline;
 }
 </style>
