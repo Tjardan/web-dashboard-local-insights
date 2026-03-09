@@ -377,6 +377,24 @@ a:hover {
   color: var(--neon-orange);
 }
 
+/* ── Search highlight mark ───────────────────────────────── */
+mark.hl {
+  background: rgba(255, 230, 0, 0.28);
+  color: #ffe600;
+  border-radius: 2px;
+  padding: 0 1px;
+  font-style: normal;
+}
+
+.snippet-prefix {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 230, 0, 0.6);
+  margin-right: 0.3em;
+}
+
 /* ── Animated grid background ────────────────────────────── */
 .grid-bg {
   position: fixed;
@@ -591,36 +609,34 @@ html[data-theme="sys-nexus"] input[type="checkbox"],
 html[data-theme="sys-nexus"] input[type="radio"],
 html[data-theme="sys-nexus"] [role="button"],
 html[data-theme="sys-nexus"] .timeline-entry--clickable,
+html[data-theme="sys-nexus"] .entry-group--collapsed,
 html[data-theme="sys-nexus"] .entry-group__item--clickable,
 html[data-theme="sys-nexus"] .source-chip,
 html[data-theme="sys-nexus"] .chat-session {
   cursor: pointer !important;
 }
 
-/* Expand/collapse toggles — custom chevron-in-crosshair cursor
+/* Down chevron — collapsed state (click to expand)
    Class selector 0,1,1,0 beats broad button rule 0,1,0,1 → wins */
 html[data-theme="sys-nexus"] .chat-turn__header,
 html[data-theme="sys-nexus"] .chat-session__header,
-html[data-theme="sys-nexus"] .entry-group__header,
 html[data-theme="sys-nexus"] .thinking-block__bar,
 html[data-theme="sys-nexus"] .chat-block__expand,
 html[data-theme="sys-nexus"] .tool-call__toggle,
-html[data-theme="sys-nexus"] .entry-group__item-files-toggle,
-html[data-theme="sys-nexus"] .timeline-entry__files-toggle {
+html[data-theme="sys-nexus"] .entry-group--collapsed .entry-group__expand-bar,
+html[data-theme="sys-nexus"] .entry-group__expand-bar:not(.entry-group__expand-bar--open),
+html[data-theme="sys-nexus"] .timeline-entry__expand-bar:not(.timeline-entry__expand-bar--open) {
   cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M5 9L14 20L23 9' stroke='%2300f5ff' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>") 14 20, pointer !important;
 }
 
 /* Up chevron — expanded state (click to collapse) */
 html[data-theme="sys-nexus"] .chat-session--expanded .chat-session__header,
-html[data-theme="sys-nexus"] .entry-group__chevron--open,
-html[data-theme="sys-nexus"] .entry-group__chevron--open ~ *,
-html[data-theme="sys-nexus"] .entry-group__header:has(> .entry-group__right > .entry-group__chevron--open),
 html[data-theme="sys-nexus"] .chat-turn__chevron:not(.chat-turn__chevron--collapsed),
 html[data-theme="sys-nexus"] .thinking-block__body ~ .thinking-block__bar,
 html[data-theme="sys-nexus"] .tool-call__toggle[title='Details verbergen'],
 html[data-theme="sys-nexus"] .chat-block__expand--expanded,
-html[data-theme="sys-nexus"] .entry-group__item-files-chevron.open,
-html[data-theme="sys-nexus"] .timeline-entry__files-chevron.open {
+html[data-theme="sys-nexus"] .entry-group__expand-bar--open,
+html[data-theme="sys-nexus"] .timeline-entry__expand-bar--open {
   cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M5 20L14 9L23 20' stroke='%2300f5ff' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>") 14 9, pointer !important;
 }
 
@@ -860,4 +876,80 @@ html[data-theme="sys-nexus"] .grid-bg {
   background-image:
     linear-gradient(rgba(0, 245, 255, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(0, 245, 255, 0.04) 1px, transparent 1px);
+}
+
+/* ── SYS:NEXUS — commit chip & files toggle ──────────────── */
+html[data-theme="sys-nexus"] .timeline-entry__commit-chip {
+  border-radius: 0 !important;
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.68rem !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  border-color: rgba(0, 255, 136, 0.35) !important;
+  background: rgba(0, 255, 136, 0.05) !important;
+  color: var(--neon-green) !important;
+}
+
+html[data-theme="sys-nexus"] .timeline-entry__commit-chip:hover {
+  border-color: var(--neon-green) !important;
+  background: rgba(0, 255, 136, 0.1) !important;
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.3) !important;
+}
+
+/* ── SYS:NEXUS — chat / commit / group expand bars ────────── */
+html[data-theme="sys-nexus"] .timeline-entry__expand-bar {
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  border-top: 1px solid rgba(0, 245, 255, 0.12) !important;
+  background: rgba(0, 245, 255, 0.03) !important;
+  border-radius: 0 !important;
+}
+
+html[data-theme="sys-nexus"] .timeline-entry__expand-bar:hover {
+  background: rgba(0, 245, 255, 0.08) !important;
+  border-top-color: var(--neon-cyan) !important;
+  box-shadow: inset 0 1px 0 0 rgba(0, 245, 255, 0.3) !important;
+}
+
+html[data-theme="sys-nexus"] .timeline-entry__expand-bar--open {
+  background: rgba(0, 245, 255, 0.05) !important;
+  border-top-color: rgba(0, 245, 255, 0.3) !important;
+}
+
+/* SYS:NEXUS — apply same bar style to group expand bar */
+html[data-theme="sys-nexus"] .entry-group__expand-bar {
+  font-family: 'Share Tech Mono', monospace !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  border-top: 1px solid rgba(0, 245, 255, 0.12) !important;
+  background: rgba(0, 245, 255, 0.03) !important;
+  border-radius: 0 !important;
+}
+
+html[data-theme="sys-nexus"] .entry-group__expand-bar:hover {
+  background: rgba(0, 245, 255, 0.08) !important;
+  border-top-color: var(--neon-cyan) !important;
+  box-shadow: inset 0 1px 0 0 rgba(0, 245, 255, 0.3) !important;
+}
+
+html[data-theme="sys-nexus"] .entry-group__expand-bar--open {
+  background: rgba(0, 245, 255, 0.05) !important;
+  border-top-color: rgba(0, 245, 255, 0.3) !important;
+}
+
+/* ── SYS:NEXUS — chat-turn header ────────────────────────── */
+html[data-theme="sys-nexus"] .chat-turn__header {
+  border-radius: 0 !important;
+  border-color: rgba(0, 245, 255, 0.08) !important;
+  background: rgba(0, 245, 255, 0.02) !important;
+  font-family: 'Share Tech Mono', monospace !important;
+}
+
+html[data-theme="sys-nexus"] .chat-turn__header:hover {
+  background: rgba(0, 245, 255, 0.07) !important;
+  border-color: rgba(0, 245, 255, 0.25) !important;
+  box-shadow: 0 0 8px rgba(0, 245, 255, 0.15) !important;
 }
