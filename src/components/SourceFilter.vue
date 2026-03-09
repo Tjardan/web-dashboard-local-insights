@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { SourceType } from '@/types'
 import { useSettingsStore } from '@/stores/settings'
 import { getAllConnectors } from '@/connectors'
 
 const settingsStore = useSettingsStore()
-const connectors = getAllConnectors()
+
+/** Only show connectors that are either always-available or already configured. */
+const connectors = computed(() =>
+  getAllConnectors().filter((c) => {
+    if (c.type === 'teams') return !!settingsStore.settings.teamsConfig?.clientId
+    if (c.type === 'teams-file') return !!settingsStore.settings.teamsFilePath
+    return true
+  }),
+)
 
 function toggleSource(type: SourceType) {
   settingsStore.toggleSource(type)
