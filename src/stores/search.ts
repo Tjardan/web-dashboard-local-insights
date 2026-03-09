@@ -14,6 +14,7 @@ import { BM25Index } from "@/search/bm25";
 import { VectorStore } from "@/search/vector-store";
 import { HybridSearchEngine } from "@/search/hybrid";
 import { entriesToBM25Docs, entriesToVectorDocs } from "@/search/index-builder";
+import type { VectorDocument } from "@/search/vector-store";
 import {
   embedOne,
   chatComplete,
@@ -112,7 +113,37 @@ export const useSearchStore = defineStore("search", () => {
   const vectorIndexError = ref<string | null>(null);
 
   const bm25DocCount = ref(0);
+  // vectorDocCount and vectorIndexedAt start at 0/null and are updated once
+  // IndexedDB has finished loading (vectorStore.ready). This ensures the UI
+  // correctly reflects a persisted index after a page reload / server restart.
   const vectorDocCount = ref(0);
+  const vectorIndexedAt = ref<string | null>(null);
+  const vectorStaleness = ref<{ toEmbed: number; toRemove: number } | null>(
+    null,
+  );
+
+  // Populate from IndexedDB once it's ready.
+  // Also recompute staleness immediately using whatever entries are already
+  // known — this handles the race where setEntries() ran before IDB was loaded.
+  vectorStore.ready.then(() => {
+    vectorDocCount.value = vectorStore.size;
+    vectorIndexedAt.value = vectorStore.indexedAt;
+
+    if (vectorStore.size > 0 && _allEntries.length > 0 && hasGithubToken()) {
+      const docs = entriesToVectorDocs(_allEntries);
+      vectorStaleness.value = vectorStore.checkStaleness(docs);
+      if (
+        vectorStaleness.value.toEmbed > 0 ||
+        vectorStaleness.value.toRemove > 0
+      ) {
+        if (_autoRebuildTimer !== null) clearTimeout(_autoRebuildTimer);
+        _autoRebuildTimer = setTimeout(() => {
+          _autoRebuildTimer = null;
+          rebuildVectorIndex(_allEntries);
+        }, 3_000);
+      }
+    }
+  });
 
   const query = ref("");
   const results = ref<SearchResult[]>([]);
@@ -130,6 +161,23 @@ export const useSearchStore = defineStore("search", () => {
     hasToken.value && vectorDocCount.value > 0 ? "hybrid" : "bm25-only",
   );
   const isReady = computed(() => bm25DocCount.value > 0);
+
+  /**
+   * Health of the vector index:
+   * - 'empty'    — no token or index has never been built
+   * - 'indexing' — a rebuild is currently in progress
+   * - 'stale'    — there are new/changed docs not yet embedded
+   * - 'current'  — index matches all current entries
+   */
+  const vectorIndexHealth = computed<
+    "empty" | "stale" | "current" | "indexing"
+  >(() => {
+    if (isIndexingVectors.value) return "indexing";
+    if (vectorDocCount.value === 0) return "empty";
+    const s = vectorStaleness.value;
+    if (s && (s.toEmbed > 0 || s.toRemove > 0)) return "stale";
+    return "current";
+  });
 
   // ── BM25 index management ────────────────────────────────────────────────────
 
@@ -158,6 +206,9 @@ export const useSearchStore = defineStore("search", () => {
         vectorIndexTotal.value = total;
       });
       vectorDocCount.value = vectorStore.size;
+      vectorIndexedAt.value = vectorStore.indexedAt;
+      // Re-check staleness after rebuild (should be 0/0 now)
+      vectorStaleness.value = vectorStore.checkStaleness(docs);
     } catch (err) {
       vectorIndexError.value = err instanceof Error ? err.message : String(err);
     } finally {
@@ -165,18 +216,40 @@ export const useSearchStore = defineStore("search", () => {
     }
   }
 
-  function clearVectorIndex(): void {
-    vectorStore.clearStorage();
+  async function clearVectorIndex(): Promise<void> {
+    await vectorStore.clearStorage();
     vectorDocCount.value = 0;
+    vectorIndexedAt.value = null;
+    vectorStaleness.value = null;
   }
 
   // ── Search ───────────────────────────────────────────────────────────────────
 
   /** All entries from the projects store — set by the watcher in App.vue */
   let _allEntries: InsightEntry[] = [];
+  let _autoRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
   function setEntries(entries: InsightEntry[]): void {
     _allEntries = entries;
+    // Recompute staleness so the health badge reacts immediately when
+    // new entries appear (new commits fetched, page reload, etc.)
+    if (vectorDocCount.value > 0 && hasGithubToken()) {
+      const docs: VectorDocument[] = entriesToVectorDocs(entries);
+      vectorStaleness.value = vectorStore.checkStaleness(docs);
+
+      // Auto-rebuild: debounced so rapid consecutive entry updates don't
+      // each fire an API call. Fires 3 s after the last setEntries call.
+      if (
+        vectorStaleness.value.toEmbed > 0 ||
+        vectorStaleness.value.toRemove > 0
+      ) {
+        if (_autoRebuildTimer !== null) clearTimeout(_autoRebuildTimer);
+        _autoRebuildTimer = setTimeout(() => {
+          _autoRebuildTimer = null;
+          rebuildVectorIndex(_allEntries);
+        }, 3_000);
+      }
+    }
   }
 
   /** Entry lookup map for result enrichment */
@@ -484,6 +557,8 @@ Huidige datum: ${new Date().toLocaleDateString("nl-NL")}`,
     vectorIndexError,
     bm25DocCount,
     vectorDocCount,
+    vectorIndexedAt,
+    vectorStaleness,
     query,
     results,
     isSearching,
@@ -496,6 +571,7 @@ Huidige datum: ${new Date().toLocaleDateString("nl-NL")}`,
     hasToken,
     searchMode,
     isReady,
+    vectorIndexHealth,
     // Actions
     rebuildBM25Index,
     rebuildVectorIndex,

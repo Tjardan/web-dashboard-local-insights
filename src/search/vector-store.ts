@@ -4,8 +4,12 @@
  * Stores document embeddings (1536-dim float32 from text-embedding-3-small)
  * and provides fast nearest-neighbour search using cosine similarity.
  *
- * Persistence: serialized to localStorage under `devpulse-vector-index` so
- * embeddings survive page reloads and don't need to be recomputed.
+ * Persistence: stored in IndexedDB (devpulse-vector-store / entries).
+ * Embeddings are kept as Float32Array structured clones — ~6 KB/doc instead
+ * of ~18 KB JSON, and there is no quota issue (browsers allow hundreds of MB).
+ *
+ * Migration: any existing localStorage data is migrated on first init() and
+ * then deleted from localStorage.
  *
  * Incremental updates: only re-embeds documents whose content hash has changed
  * since the last indexing run, keeping API calls minimal.
@@ -32,13 +36,107 @@ export interface SemanticResult {
   score: number; // cosine similarity [0..1]
 }
 
-// ─── Persistence ──────────────────────────────────────────────────────────────
+// ─── IndexedDB helpers ────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "devpulse-vector-index";
-const MAX_STORED_DOCS = 5000; // guard against localStorage quota
+const IDB_NAME = "devpulse-vector-store";
+const IDB_VERSION = 1;
+const STORE_ENTRIES = "entries";
+const STORE_META = "meta";
+const MAX_STORED_DOCS = 5000;
 
-interface PersistedIndex {
+/** Open (and upgrade) the IndexedDB database */
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_ENTRIES)) {
+        db.createObjectStore(STORE_ENTRIES, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_META)) {
+        db.createObjectStore(STORE_META);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGetAll<T>(db: IDBDatabase, storeName: string): Promise<T[]> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const req = tx.objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result as T[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbGet<T>(
+  db: IDBDatabase,
+  storeName: string,
+  key: string,
+): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const req = tx.objectStore(storeName).get(key);
+    req.onsuccess = () => resolve(req.result as T | undefined);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbPut(
+  db: IDBDatabase,
+  storeName: string,
+  value: unknown,
+  key?: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const req = key !== undefined ? store.put(value, key) : store.put(value);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbDelete(
+  db: IDBDatabase,
+  storeName: string,
+  key: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const req = tx.objectStore(storeName).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idbClear(db: IDBDatabase, storeName: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const req = tx.objectStore(storeName).clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Row shape stored in the entries object store */
+interface IDBEntryRow {
+  id: string;
+  text: string;
+  hash: string;
+  /** Float32Array stored as a structured clone (compact binary, no JSON overhead) */
+  embedding: Float32Array;
+}
+
+// ─── localStorage migration helpers ──────────────────────────────────────────
+
+const LS_LEGACY_KEY = "devpulse-vector-index";
+
+interface LegacyPersistedIndex {
   version: number;
+  indexedAt?: string;
   entries: Array<{
     id: string;
     text: string;
@@ -61,10 +159,76 @@ function contentHash(text: string): string {
 
 export class VectorStore {
   private entries = new Map<string, VectorEntry>();
-  private dirty = false;
+  private _indexedAt: string | null = null;
+  private _db: IDBDatabase | null = null;
+  /** Resolves once the IndexedDB is open and all persisted entries are loaded */
+  readonly ready: Promise<void>;
 
   constructor() {
-    this.loadFromStorage();
+    this.ready = this._init();
+  }
+
+  private async _init(): Promise<void> {
+    try {
+      this._db = await openDB();
+      await this._migrateFromLocalStorage();
+      await this._loadFromIDB();
+    } catch (err) {
+      console.warn(
+        "[VectorStore] IndexedDB init failed, running in-memory only:",
+        err,
+      );
+    }
+  }
+
+  /** One-time migration: import existing localStorage JSON into IndexedDB then delete it */
+  private async _migrateFromLocalStorage(): Promise<void> {
+    if (!this._db) return;
+    const raw = localStorage.getItem(LS_LEGACY_KEY);
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw) as LegacyPersistedIndex;
+      if (data.version === 1 && Array.isArray(data.entries)) {
+        for (const e of data.entries) {
+          const row: IDBEntryRow = {
+            id: e.id,
+            text: e.text,
+            hash: e.hash,
+            embedding: new Float32Array(e.embedding),
+          };
+          await idbPut(this._db, STORE_ENTRIES, row);
+        }
+        if (data.indexedAt) {
+          await idbPut(this._db, STORE_META, data.indexedAt, "indexedAt");
+        }
+        console.info(
+          `[VectorStore] Migrated ${data.entries.length} entries from localStorage → IndexedDB`,
+        );
+      }
+    } catch {
+      // Corrupted legacy data — ignore
+    } finally {
+      localStorage.removeItem(LS_LEGACY_KEY);
+    }
+  }
+
+  private async _loadFromIDB(): Promise<void> {
+    if (!this._db) return;
+    const rows = await idbGetAll<IDBEntryRow>(this._db, STORE_ENTRIES);
+    for (const row of rows) {
+      this.entries.set(row.id, {
+        id: row.id,
+        text: row.text,
+        hash: row.hash,
+        embedding: Array.from(row.embedding),
+      });
+    }
+    this._indexedAt =
+      (await idbGet<string>(this._db, STORE_META, "indexedAt")) ?? null;
+  }
+
+  get indexedAt(): string | null {
+    return this._indexedAt;
   }
 
   // ── Cosine similarity ──────────────────────────────────────────────────────
@@ -95,6 +259,7 @@ export class VectorStore {
     docs: VectorDocument[],
     onProgress?: (indexed: number, total: number) => void,
   ): Promise<number> {
+    await this.ready;
     const toEmbed: VectorDocument[] = [];
 
     for (const doc of docs) {
@@ -104,13 +269,22 @@ export class VectorStore {
       }
     }
 
-    if (toEmbed.length === 0) return 0;
-
     // Remove docs that are no longer in the input set
     const inputIds = new Set(docs.map((d) => d.id));
+    const toRemove: string[] = [];
     for (const id of this.entries.keys()) {
-      if (!inputIds.has(id)) this.entries.delete(id);
+      if (!inputIds.has(id)) {
+        this.entries.delete(id);
+        toRemove.push(id);
+      }
     }
+    if (this._db) {
+      for (const id of toRemove) {
+        await idbDelete(this._db, STORE_ENTRIES, id);
+      }
+    }
+
+    if (toEmbed.length === 0) return 0;
 
     // Embed in batches of 96 (API limit), reporting progress
     const BATCH = 96;
@@ -122,28 +296,71 @@ export class VectorStore {
 
       for (let j = 0; j < batch.length; j++) {
         const doc = batch[j];
-        this.entries.set(doc.id, { ...doc, embedding: embeddings[j] });
+        const entry: VectorEntry = { ...doc, embedding: embeddings[j] };
+        this.entries.set(doc.id, entry);
+        if (this._db) {
+          const row: IDBEntryRow = {
+            id: doc.id,
+            text: doc.text,
+            hash: doc.hash,
+            embedding: new Float32Array(embeddings[j]),
+          };
+          await idbPut(this._db, STORE_ENTRIES, row);
+        }
         indexed++;
       }
 
       onProgress?.(indexed, toEmbed.length);
     }
 
-    this.dirty = true;
-    this.pruneToLimit();
-    this.saveToStorage();
+    this._indexedAt = new Date().toISOString();
+    if (this._db) {
+      await idbPut(this._db, STORE_META, this._indexedAt, "indexedAt");
+    }
+    this._pruneToLimit();
     return indexed;
+  }
+
+  /**
+   * Dry-run staleness check: returns how many docs would be re-embedded or
+   * removed if indexDocuments() were called now, without hitting the API.
+   */
+  checkStaleness(docs: VectorDocument[]): {
+    toEmbed: number;
+    toRemove: number;
+  } {
+    let toEmbed = 0;
+    for (const doc of docs) {
+      const existing = this.entries.get(doc.id);
+      if (!existing || existing.hash !== doc.hash) toEmbed++;
+    }
+    const inputIds = new Set(docs.map((d) => d.id));
+    let toRemove = 0;
+    for (const id of this.entries.keys()) {
+      if (!inputIds.has(id)) toRemove++;
+    }
+    return { toEmbed, toRemove };
   }
 
   /** Upsert a single already-embedded entry (used by server-side index loading) */
   upsert(entry: VectorEntry): void {
     this.entries.set(entry.id, entry);
-    this.dirty = true;
+    if (this._db) {
+      const row: IDBEntryRow = {
+        id: entry.id,
+        text: entry.text,
+        hash: entry.hash,
+        embedding: new Float32Array(entry.embedding),
+      };
+      idbPut(this._db, STORE_ENTRIES, row).catch(() => undefined);
+    }
   }
 
   /** Remove a document by id */
   remove(id: string): void {
-    if (this.entries.delete(id)) this.dirty = true;
+    if (this.entries.delete(id) && this._db) {
+      idbDelete(this._db, STORE_ENTRIES, id).catch(() => undefined);
+    }
   }
 
   // ── Search ─────────────────────────────────────────────────────────────────
@@ -177,54 +394,27 @@ export class VectorStore {
 
   // ── Persistence ────────────────────────────────────────────────────────────
 
-  private saveToStorage(): void {
-    if (!this.dirty) return;
-    try {
-      const data: PersistedIndex = {
-        version: 1,
-        entries: [...this.entries.values()].map((e) => ({
-          id: e.id,
-          text: e.text,
-          hash: e.hash,
-          embedding: e.embedding,
-        })),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      this.dirty = false;
-    } catch {
-      // localStorage quota exceeded — silently ignore
-    }
-  }
-
-  private loadFromStorage(): void {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as PersistedIndex;
-      if (data.version !== 1) return;
-      for (const e of data.entries) {
-        this.entries.set(e.id, e);
-      }
-    } catch {
-      // Corrupted storage — start fresh
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }
-
-  clearStorage(): void {
-    localStorage.removeItem(STORAGE_KEY);
+  async clearStorage(): Promise<void> {
     this.entries.clear();
-    this.dirty = false;
+    this._indexedAt = null;
+    if (this._db) {
+      await idbClear(this._db, STORE_ENTRIES);
+      await idbDelete(this._db, STORE_META, "indexedAt");
+    }
+    // Also clean up any leftover localStorage data
+    localStorage.removeItem(LS_LEGACY_KEY);
   }
 
-  private pruneToLimit(): void {
+  private _pruneToLimit(): void {
     if (this.entries.size <= MAX_STORED_DOCS) return;
-    // Remove oldest entries (by insertion order)
     const toRemove = this.entries.size - MAX_STORED_DOCS;
     let removed = 0;
     for (const id of this.entries.keys()) {
       if (removed >= toRemove) break;
       this.entries.delete(id);
+      if (this._db) {
+        idbDelete(this._db, STORE_ENTRIES, id).catch(() => undefined);
+      }
       removed++;
     }
   }

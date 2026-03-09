@@ -134,6 +134,17 @@ function formatDate(iso: string): string {
   });
 }
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "zojuist";
+  if (minutes < 60) return `${minutes}m geleden`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}u geleden`;
+  const days = Math.floor(hours / 24);
+  return `${days}d geleden`;
+}
+
 function openProject(id: string) {
   router.push(`/project/${id}`);
 }
@@ -206,6 +217,34 @@ watch(
           "
         >
           {{ searchStore.searchMode }}
+        </span>
+        <!-- Health badge -->
+        <span
+          class="index-badge"
+          :class="`index-badge--health-${searchStore.vectorIndexHealth}`"
+          :title="
+            searchStore.vectorIndexHealth === 'stale' && searchStore.vectorStaleness
+              ? `${searchStore.vectorStaleness.toEmbed} nieuw/gewijzigd · ${searchStore.vectorStaleness.toRemove} verwijderd`
+              : searchStore.vectorIndexedAt
+              ? `Geïndexeerd: ${new Date(searchStore.vectorIndexedAt).toLocaleString('nl-NL')}`
+              : 'Nog niet geïndexeerd'
+          "
+        >
+          <span class="health-dot" />
+          <span v-if="searchStore.vectorIndexHealth === 'indexing'">indexing…</span>
+          <span v-else-if="searchStore.vectorIndexHealth === 'stale'">
+            stale
+            <span v-if="searchStore.vectorStaleness?.toEmbed" class="health-count">
+              +{{ searchStore.vectorStaleness.toEmbed }}
+            </span>
+          </span>
+          <span v-else-if="searchStore.vectorIndexHealth === 'current'">
+            current
+            <span v-if="searchStore.vectorIndexedAt" class="health-ts">
+              · {{ timeAgo(searchStore.vectorIndexedAt) }}
+            </span>
+          </span>
+          <span v-else>not built</span>
         </span>
       </div>
     </header>
@@ -738,6 +777,59 @@ watch(
 .index-badge--dim {
   color: var(--text-muted);
   border-color: var(--border-dim);
+}
+
+/* Health badge variants */
+.index-badge--health-current {
+  color: var(--neon-green);
+  border-color: rgba(57, 255, 20, 0.4);
+  background: rgba(57, 255, 20, 0.07);
+}
+
+.index-badge--health-stale {
+  color: #ffcc00;
+  border-color: rgba(255, 204, 0, 0.4);
+  background: rgba(255, 204, 0, 0.07);
+}
+
+.index-badge--health-empty {
+  color: var(--text-muted);
+  border-color: var(--border-dim);
+}
+
+.index-badge--health-indexing {
+  color: var(--neon-cyan);
+  border-color: rgba(0, 240, 255, 0.4);
+  background: rgba(0, 240, 255, 0.07);
+}
+
+.health-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 0.3em;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+.index-badge--health-indexing .health-dot {
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.health-count {
+  opacity: 0.85;
+  margin-left: 0.15em;
+}
+
+.health-ts {
+  opacity: 0.65;
+  font-weight: 500;
 }
 
 /* ── Token banner ──────────────────────────────────────────────────────────── */
