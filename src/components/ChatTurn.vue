@@ -600,6 +600,7 @@ function hlPara(lines: string[]): string {
               <div v-if="seg.type === 'thinking'" class="thinking-block">
                 <button
                   class="thinking-block__bar"
+                  :class="{ 'thinking-block__bar--expanded': expandedThinking.has(si) }"
                   @click.stop="
                     expandedThinking.has(si)
                       ? (expandedThinking.delete(si),
@@ -608,9 +609,16 @@ function hlPara(lines: string[]): string {
                         (expandedThinking = new Set(expandedThinking)))
                   "
                 >
-                  <span class="thinking-block__icon">{{
-                    expandedThinking.has(si) ? "▾" : "▸"
-                  }}</span>
+                  <svg
+                    class="thinking-block__chevron"
+                    :class="{ 'thinking-block__chevron--up': expandedThinking.has(si) }"
+                    width="11" height="7"
+                    viewBox="0 0 11 7"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path d="M1 1L5.5 6L10 1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
                   <span class="thinking-block__label">{{
                     seg.label ?? "thinking"
                   }}</span>
@@ -620,6 +628,7 @@ function hlPara(lines: string[]): string {
                   >
                     {{ thinkingPreview(seg.content) }}&hellip;
                   </span>
+                  <span v-else class="thinking-block__collapse-hint">Inklappen</span>
                 </button>
                 <div
                   v-if="expandedThinking.has(si)"
@@ -665,12 +674,13 @@ function hlPara(lines: string[]): string {
             @click.stop="responseExpanded = !responseExpanded"
           >
             <svg
+              class="chat-block__expand-icon"
+              :class="{ 'chat-block__expand-icon--up': responseExpanded }"
               width="12"
               height="8"
               viewBox="0 0 12 8"
               fill="none"
               aria-hidden="true"
-              class="chat-block__expand-icon"
             >
               <path
                 d="M1 1L6 7L11 1"
@@ -911,36 +921,39 @@ function hlPara(lines: string[]): string {
 }
 
 .chat-block__expand {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  margin-top: 0.5rem;
-  padding: 0.22rem 0.65rem;
-  background: rgba(0, 240, 255, 0.06);
-  border: 1px solid rgba(0, 240, 255, 0.22);
-  border-radius: 4px;
+  justify-content: center;
+  gap: 0.45rem;
+  width: calc(100% + 1.6rem);
+  margin: 0.5rem -0.8rem -0.6rem;
+  padding: 0.45rem 0.8rem;
+  background: rgba(0, 240, 255, 0.04);
+  border: none;
+  border-top: 1px solid rgba(0, 240, 255, 0.1);
+  border-radius: 0 0 var(--radius, 8px) var(--radius, 8px);
   cursor: pointer;
   font-size: 0.78rem;
-  font-weight: 500;
+  font-weight: 600;
+  font-family: inherit;
   letter-spacing: 0.03em;
-  color: var(--neon-cyan);
-  transition:
-    background 0.2s,
-    border-color 0.2s,
-    color 0.2s;
+  color: var(--text-secondary);
+  transition: background 0.2s, color 0.2s, border-top-color 0.2s;
 }
 
-.chat-block__expand:hover {
-  background: rgba(0, 240, 255, 0.13);
-  border-color: rgba(0, 240, 255, 0.45);
-  color: #fff;
+.chat-block__expand:hover,
+.chat-block__expand--expanded {
+  background: rgba(0, 240, 255, 0.09);
+  border-top-color: rgba(0, 240, 255, 0.28);
+  color: var(--neon-cyan);
 }
 
 .chat-block__expand-icon {
   flex-shrink: 0;
-  transition: transform 0.25s var(--ease-out-expo);
+  transition: transform 0.25s var(--ease-out-expo, cubic-bezier(0.33, 1, 0.68, 1));
 }
 
-.chat-block__expand--expanded .chat-block__expand-icon {
+.chat-block__expand-icon--up {
   transform: rotate(180deg);
 }
 
@@ -1398,11 +1411,14 @@ function hlPara(lines: string[]): string {
   background: rgba(255, 185, 40, 0.1);
 }
 
-.thinking-block__icon {
-  font-size: 0.8rem;
+.thinking-block__chevron {
   color: rgba(255, 185, 40, 0.9);
   flex-shrink: 0;
-  line-height: 1;
+  transition: transform 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.thinking-block__chevron--up {
+  transform: rotate(180deg);
 }
 
 .thinking-block__label {
@@ -1412,6 +1428,14 @@ function hlPara(lines: string[]): string {
   letter-spacing: 0.07em;
   color: rgba(255, 185, 40, 0.9);
   flex-shrink: 0;
+}
+
+.thinking-block__collapse-hint {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: rgba(255, 185, 40, 0.55);
+  font-weight: 500;
+  letter-spacing: 0.03em;
 }
 
 .thinking-block__preview {

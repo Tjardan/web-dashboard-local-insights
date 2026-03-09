@@ -620,8 +620,8 @@ html[data-theme="sys-nexus"] .chat-session {
    Class selector 0,1,1,0 beats broad button rule 0,1,0,1 → wins */
 html[data-theme="sys-nexus"] .chat-turn__header,
 html[data-theme="sys-nexus"] .chat-session__header,
-html[data-theme="sys-nexus"] .thinking-block__bar,
-html[data-theme="sys-nexus"] .chat-block__expand,
+html[data-theme="sys-nexus"] .thinking-block__bar:not(.thinking-block__bar--expanded),
+html[data-theme="sys-nexus"] .chat-block__expand:not(.chat-block__expand--expanded),
 html[data-theme="sys-nexus"] .tool-call__toggle,
 html[data-theme="sys-nexus"] .entry-group--collapsed .entry-group__expand-bar,
 html[data-theme="sys-nexus"] .entry-group__expand-bar:not(.entry-group__expand-bar--open),
@@ -632,7 +632,7 @@ html[data-theme="sys-nexus"] .timeline-entry__expand-bar:not(.timeline-entry__ex
 /* Up chevron — expanded state (click to collapse) */
 html[data-theme="sys-nexus"] .chat-session--expanded .chat-session__header,
 html[data-theme="sys-nexus"] .chat-turn__chevron:not(.chat-turn__chevron--collapsed),
-html[data-theme="sys-nexus"] .thinking-block__body ~ .thinking-block__bar,
+html[data-theme="sys-nexus"] .thinking-block__bar--expanded,
 html[data-theme="sys-nexus"] .tool-call__toggle[title='Details verbergen'],
 html[data-theme="sys-nexus"] .chat-block__expand--expanded,
 html[data-theme="sys-nexus"] .entry-group__expand-bar--open,
