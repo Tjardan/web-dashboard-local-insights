@@ -1,45 +1,15 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useRouter } from "vue-router";
 import type { EntryGroup } from "@/utils/timeline-grouping";
-import type { InsightEntry } from "@/types";
-import { useProjectsStore } from "@/stores/projects";
-import { buildCommitUrl } from "@/utils/git-remote";
 import TimelineEntry from "./TimelineEntry.vue";
 
 const props = defineProps<{
   group: EntryGroup;
+  searchQuery?: string;
+  focusedEntryId?: string;
 }>();
 
-const router = useRouter();
-const projectsStore = useProjectsStore();
-
 const expanded = ref(false);
-
-// Per-entry files toggle (key = entry.id)
-const openFiles = ref<Record<string, boolean>>({});
-
-function toggleFiles(id: string) {
-  openFiles.value[id] = !openFiles.value[id];
-}
-
-function navigateEntry(entry: InsightEntry) {
-  if (entry.meta.source === "chat") {
-    const sessionId = entry.meta.extra?.sessionId as string | undefined;
-    const dest = sessionId
-      ? `/project/${entry.projectId}/chats?session=${encodeURIComponent(sessionId)}`
-      : `/project/${entry.projectId}/chats`;
-    router.push(dest);
-  }
-}
-
-function getCommitUrl(entry: InsightEntry): string | null {
-  if (entry.meta.source !== "commit") return null;
-  const sha = entry.meta.extra?.sha as string | undefined;
-  if (!sha) return null;
-  const project = projectsStore.projects.find((p) => p.id === entry.projectId);
-  return buildCommitUrl(project?.gitRemote, sha);
-}
 
 function formatTime(timestamp: string): string {
   const date = new Date(timestamp);
@@ -56,16 +26,6 @@ function formatTime(timestamp: string): string {
   return date.toLocaleDateString("nl-NL", { month: "short", day: "numeric" });
 }
 
-interface CommitFile {
-  status: string;
-  path: string;
-}
-
-function getFiles(entry: InsightEntry): CommitFile[] {
-  const f = entry.meta.extra?.files;
-  return Array.isArray(f) ? (f as CommitFile[]) : [];
-}
-
 const badgeClass: Record<string, string> = {
   commit: "neon-badge--commit",
   chat: "neon-badge--chat",
@@ -79,31 +39,26 @@ const sourceLabel: Record<string, string> = {
   teams: "teams",
   email: "e-mail",
 };
-
-const statusIcon: Record<string, string> = {
-  A: "✚",
-  M: "●",
-  D: "✕",
-  R: "→",
-  C: "⧉",
-};
-const statusColor: Record<string, string> = {
-  A: "var(--neon-green)",
-  M: "var(--neon-cyan)",
-  D: "var(--neon-magenta)",
-  R: "var(--neon-yellow)",
-  C: "var(--neon-purple)",
-};
 </script>
 
 <template>
   <!-- Single entry: render as normal timeline card -->
-  <TimelineEntry v-if="group.entries.length === 1" :entry="group.entries[0]" />
+  <TimelineEntry
+    v-if="group.entries.length === 1"
+    :entry="group.entries[0]"
+    :searchQuery="searchQuery"
+    :focusedEntryId="focusedEntryId"
+  />
 
   <!-- Multiple consecutive entries: collapsible group -->
-  <div v-else class="entry-group neon-card">
-    <!-- Header — always visible, click to toggle -->
-    <div class="entry-group__header" @click="expanded = !expanded">
+  <div
+    v-else
+    class="entry-group neon-card"
+    :class="{ 'entry-group--collapsed': !expanded }"
+    @click="!expanded && (expanded = true)"
+  >
+    <!-- Header -->
+    <div class="entry-group__header">
       <div class="entry-group__meta">
         <span class="neon-badge" :class="badgeClass[group.source] ?? ''">
           {{ group.source }}
@@ -115,128 +70,62 @@ const statusColor: Record<string, string> = {
       </div>
       <div class="entry-group__right">
         <span class="entry-group__time">{{ formatTime(group.timestamp) }}</span>
-        <span
-          class="entry-group__chevron"
-          :class="{ 'entry-group__chevron--open': expanded }"
-        >
-          ▾
-        </span>
       </div>
     </div>
 
-    <!-- Collapsed preview -->
-    <Transition name="group-collapse">
-      <div v-if="!expanded" class="entry-group__preview">
-        <div
-          v-for="entry in group.entries.slice(0, 3)"
-          :key="entry.id"
-          class="entry-group__preview-row"
-        >
-          <span class="entry-group__preview-dot">·</span>
-          <span class="entry-group__preview-text" :title="entry.meta.title">
-            {{ entry.meta.title }}
-          </span>
-        </div>
-        <div v-if="group.entries.length > 3" class="entry-group__overflow">
-          +{{ group.entries.length - 3 }} meer
-        </div>
-      </div>
-    </Transition>
-
-    <!-- Expanded: full entry cards inlined -->
-    <Transition name="group-expand">
-      <div v-if="expanded" class="entry-group__expanded">
-        <div
-          v-for="entry in group.entries"
-          :key="entry.id"
-          class="entry-group__item"
-          :class="{
-            'entry-group__item--clickable': entry.meta.source === 'chat',
-          }"
-          @click="navigateEntry(entry)"
-        >
-          <!-- Item header: time + link -->
-          <div class="entry-group__item-header">
-            <div class="entry-group__item-links">
-              <a
-                v-if="getCommitUrl(entry)"
-                :href="getCommitUrl(entry)!"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="entry-group__item-link"
-                title="Open commit"
-                @click.stop
-                >↗</a
-              >
-              <button
-                v-else-if="entry.meta.source === 'commit'"
-                class="entry-group__item-link"
-                title="Ga naar project"
-                @click.stop="router.push(`/project/${entry.projectId}`)"
-              >
-                ⬡
-              </button>
-              <span
-                v-if="entry.meta.source === 'chat'"
-                class="entry-group__item-link entry-group__item-link--chat"
-                >›</span
-              >
-            </div>
-            <span class="entry-group__item-time">{{
-              formatTime(entry.meta.timestamp)
-            }}</span>
-          </div>
-
-          <p class="entry-group__item-title">{{ entry.meta.title }}</p>
-          <p v-if="entry.meta.description" class="entry-group__item-desc">
-            {{ entry.meta.description }}
-          </p>
-
-          <!-- File list toggle for commits -->
+    <!-- Body: positioned container so leave-transitions can float without reserving space -->
+    <div class="entry-group__body">
+      <!-- Collapsed preview -->
+      <Transition name="group-collapse">
+        <div v-if="!expanded" class="entry-group__preview">
           <div
-            v-if="getFiles(entry).length > 0"
-            class="entry-group__item-files"
+            v-for="entry in group.entries.slice(0, 3)"
+            :key="entry.id"
+            class="entry-group__preview-row"
           >
-            <button
-              class="entry-group__item-files-toggle"
-              @click.stop="toggleFiles(entry.id)"
-            >
-              <span
-                class="entry-group__item-files-chevron"
-                :class="{ open: openFiles[entry.id] }"
-                >▾</span
-              >
-              {{ getFiles(entry).length }} bestand{{
-                getFiles(entry).length !== 1 ? "en" : ""
-              }}
-            </button>
-            <Transition name="group-collapse">
-              <ul
-                v-if="openFiles[entry.id]"
-                class="entry-group__item-files-list"
-              >
-                <li
-                  v-for="f in getFiles(entry)"
-                  :key="f.path"
-                  class="entry-group__item-file"
-                >
-                  <span
-                    class="entry-group__item-file-status"
-                    :style="{
-                      color: statusColor[f.status] ?? 'var(--text-muted)',
-                    }"
-                    >{{ statusIcon[f.status] ?? f.status }}</span
-                  >
-                  <span class="entry-group__item-file-path">{{ f.path }}</span>
-                </li>
-              </ul>
-            </Transition>
+            <span class="entry-group__preview-dot">·</span>
+            <span class="entry-group__preview-text" :title="entry.meta.title">
+              {{ entry.meta.title }}
+            </span>
           </div>
-
-          <span class="entry-group__item-project">{{ entry.projectId }}</span>
+          <div v-if="group.entries.length > 3" class="entry-group__overflow">
+            +{{ group.entries.length - 3 }} meer
+          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+
+      <!-- Expanded: full entry cards inlined -->
+      <Transition name="group-expand">
+        <div v-if="expanded" class="entry-group__expanded">
+          <TimelineEntry
+            v-for="entry in group.entries"
+            :key="entry.id"
+            :entry="entry"
+            :searchQuery="searchQuery"
+            :focusedEntryId="focusedEntryId"
+          />
+        </div>
+      </Transition>
+    </div>
+
+    <!-- Full-width expand / collapse bar -->
+    <button
+      class="entry-group__expand-bar"
+      :class="{ 'entry-group__expand-bar--open': expanded }"
+      @click.stop="expanded = !expanded"
+    >
+      <svg
+        class="entry-group__expand-chevron"
+        :class="{ 'entry-group__expand-chevron--open': expanded }"
+        width="13" height="8"
+        viewBox="0 0 13 8"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path d="M1 1L6.5 7L12 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>{{ expanded ? "Inklappen" : `Bekijken (${group.entries.length})` }}</span>
+    </button>
   </div>
 </template>
 
@@ -247,12 +136,25 @@ const statusColor: Record<string, string> = {
   cursor: default;
 }
 
+.entry-group--collapsed {
+  cursor: pointer;
+}
+
+.entry-group--collapsed:hover .entry-group__count {
+  color: var(--neon-cyan);
+}
+
+.entry-group--collapsed:hover .entry-group__expand-bar {
+  background: rgba(0, 240, 255, 0.09);
+  border-top-color: rgba(0, 240, 255, 0.28);
+  color: var(--neon-cyan);
+}
+
 /* ── Header ─────────────────────────────────────────────── */
 .entry-group__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  cursor: pointer;
   user-select: none;
 }
 
@@ -280,15 +182,47 @@ const statusColor: Record<string, string> = {
   letter-spacing: 0.04em;
 }
 
-.entry-group__chevron {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1;
-  transition: transform 0.25s var(--ease-out-expo);
-  display: inline-block;
+/* ── Group expand / collapse bar ────────────────────────── */
+.entry-group__expand-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: calc(100% + 3rem);
+  margin: 0.75rem -1.5rem -1rem;
+  padding: 0.55rem 1.5rem;
+  background: rgba(0, 240, 255, 0.04);
+  border: none;
+  border-top: 1px solid rgba(0, 240, 255, 0.1);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.03em;
+  transition: background 0.2s, color 0.2s, border-top-color 0.2s;
 }
 
-.entry-group__chevron--open {
+.entry-group__expand-bar:hover {
+  background: rgba(0, 240, 255, 0.09);
+  border-top-color: rgba(0, 240, 255, 0.28);
+  color: var(--neon-cyan);
+}
+
+.entry-group__expand-bar--open {
+  background: rgba(0, 240, 255, 0.06);
+  border-top-color: rgba(0, 240, 255, 0.22);
+  color: var(--neon-cyan);
+}
+
+.entry-group__expand-chevron {
+  color: currentColor;
+  flex-shrink: 0;
+  transition: transform 0.25s var(--ease-out-expo);
+}
+
+.entry-group__expand-chevron--open {
   transform: rotate(180deg);
 }
 
@@ -478,22 +412,37 @@ const statusColor: Record<string, string> = {
   letter-spacing: 0.06em;
 }
 
+/* ── Body: positioned so absolute-leaving children don't escape ── */
+.entry-group__body {
+  position: relative;
+}
+
 /* ── Collapse / expand transitions ─────────────────────── */
+/* Enter: slide + fade in */
 .group-collapse-enter-active,
-.group-collapse-leave-active,
-.group-expand-enter-active,
-.group-expand-leave-active {
+.group-expand-enter-active {
   transition:
     opacity 0.2s ease,
     transform 0.2s var(--ease-out-expo);
-  overflow: hidden;
 }
 
 .group-collapse-enter-from,
-.group-collapse-leave-to,
-.group-expand-enter-from,
-.group-expand-leave-to {
+.group-expand-enter-from {
   opacity: 0;
   transform: translateY(-4px);
+}
+
+/* Leave: float above layout — no space reserved, no jump */
+.group-collapse-leave-active,
+.group-expand-leave-active {
+  position: absolute;
+  width: 100%;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.group-collapse-leave-to,
+.group-expand-leave-to {
+  opacity: 0;
 }
 </style>
