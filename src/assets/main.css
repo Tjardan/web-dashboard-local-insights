@@ -369,6 +369,10 @@ a:hover {
   color: var(--neon-yellow);
 }
 
+.neon-badge--teams-file {
+  color: var(--neon-yellow);
+}
+
 .neon-badge--email {
   color: var(--neon-orange);
 }
