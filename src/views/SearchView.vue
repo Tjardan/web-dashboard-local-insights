@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted } from "vue";
 import { useSearchStore } from "@/stores/search";
 import { useProjectsStore } from "@/stores/projects";
 import { useRouter } from "vue-router";
+import { highlightText } from "@/utils/highlight-text";
 import type { AskResult } from "@/stores/search";
 import {
   setGithubToken,
@@ -149,14 +150,9 @@ function openProject(id: string) {
   router.push(`/project/${id}`);
 }
 
-function openChat(projectId: string, sessionId: unknown) {
-  if (typeof sessionId === "string") {
-    router.push(
-      `/project/${projectId}/chats?session=${encodeURIComponent(sessionId)}`,
-    );
-  } else {
-    router.push(`/project/${projectId}/chats`);
-  }
+function openChat(projectId: string, _sessionId: unknown) {
+  // Chat sessions are now expanded inline in the timeline.
+  router.push(`/timeline?source=chat&project=${encodeURIComponent(projectId)}`);
 }
 
 // ── Initial BM25 build on mount ────────────────────────────────────────────────
@@ -451,10 +447,15 @@ watch(
             <span class="result-score">{{ result.score.toFixed(4) }}</span>
           </div>
 
-          <h3 class="result-title">{{ result.entry.meta.title }}</h3>
-          <p v-if="result.entry.meta.description" class="result-desc">
-            {{ result.entry.meta.description }}
-          </p>
+          <h3
+            class="result-title"
+            v-html="highlightText(result.entry.meta.title, queryInput)"
+          />
+          <p
+            v-if="result.entry.meta.description"
+            class="result-desc"
+            v-html="highlightText(result.entry.meta.description, queryInput)"
+          />
 
           <div
             v-if="
