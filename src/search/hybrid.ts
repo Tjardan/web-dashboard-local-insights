@@ -88,6 +88,39 @@ function rrfFuse(
     .slice(0, topK);
 }
 
+// ─── Exact match boost ────────────────────────────────────────────────────────
+
+/**
+ * Computes an additive score boost for results where the query (or its tokens)
+ * appear as a concentrated phrase rather than spread across the document.
+ *
+ * Tiered bonuses (applied additively):
+ *   +0.30  exact phrase in title
+ *   +0.15  exact phrase in description/body
+ *   +0.08  all query tokens present in title (no phrase match needed)
+ *
+ * The caller is responsible for providing the text fields.
+ */
+export function exactMatchBoost(
+  title: string,
+  description: string,
+  query: string,
+): number {
+  if (!query.trim()) return 0;
+  const q = query.toLowerCase().trim();
+  const t = title.toLowerCase();
+  const d = description.toLowerCase();
+
+  if (t.includes(q)) return 0.3;
+  if (d.includes(q)) return 0.15;
+
+  // All query tokens present in title (phrase not required)
+  const tokens = q.split(/\s+/).filter((tok) => tok.length > 1);
+  if (tokens.length > 1 && tokens.every((tok) => t.includes(tok))) return 0.08;
+
+  return 0;
+}
+
 // ─── HybridSearchEngine ───────────────────────────────────────────────────────
 
 export class HybridSearchEngine {

@@ -12,7 +12,7 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { BM25Index } from "@/search/bm25";
 import { VectorStore } from "@/search/vector-store";
-import { HybridSearchEngine } from "@/search/hybrid";
+import { HybridSearchEngine, exactMatchBoost } from "@/search/hybrid";
 import { entriesToBM25Docs, entriesToVectorDocs } from "@/search/index-builder";
 import type { VectorDocument } from "@/search/vector-store";
 import {
@@ -276,16 +276,26 @@ export const useSearchStore = defineStore("search", () => {
         }
       }
 
-      const raw = engine.search(q, queryEmbedding, { topK });
+      // Fetch extra candidates so boosted items aren't cut off
+      const raw = engine.search(q, queryEmbedding, { topK: topK * 2 });
       const enriched: SearchResult[] = [];
 
       for (const r of raw) {
         const entry = getEntry(r.id);
-        if (entry) enriched.push({ ...r, entry });
+        if (!entry) continue;
+        const boost = exactMatchBoost(
+          entry.meta.title ?? "",
+          entry.meta.description ?? "",
+          q,
+        );
+        enriched.push({ ...r, score: r.score + boost, entry });
       }
 
-      results.value = enriched;
-      return enriched;
+      // Re-sort after exact-match boost and trim to requested topK
+      enriched.sort((a, b) => b.score - a.score);
+      const topResults = enriched.slice(0, topK);
+      results.value = topResults;
+      return topResults;
     } finally {
       isSearching.value = false;
     }
