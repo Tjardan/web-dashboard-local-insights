@@ -1,11 +1,13 @@
 # DevPulse — Local Project Insights Dashboard
 
 ## Projectdoel
+
 DevPulse is een lokaal, file-based web dashboard dat inzicht geeft in alle activiteit over meerdere ontwikkelprojecten heen. Het aggregeert commits, VS Code Copilot chatsessies, file changes en in de toekomst Teams/Email communicatie in een enkele, real-time gefilterde interface. Het doel is om ontwikkelaars en teams een helikopterview te geven over hun werkstroom zonder afhankelijk te zijn van een backend of cloud service.
 
 De tool is bedoeld voor lokaal gebruik door individuele ontwikkelaars en teamgenoten (cloneable via GitHub). Op termijn publicatie naar een GitHub feed.
 
 ## Kernfunctionaliteiten
+
 - **Dashboard View** — Overzicht van alle projecten met statistieken (commits, chats, files) als geanimeerde neon tegels
 - **Timeline View** — Cross-project activiteitenstroom met alle bronnen gecombineerd, chronologisch gesorteerd
 - **Project Detail View** — Gedetailleerd overzicht per project met alle entries
@@ -16,17 +18,17 @@ De tool is bedoeld voor lokaal gebruik door individuele ontwikkelaars en teamgen
 
 ## Technische stack
 
-| Onderdeel        | Keuze                     | Reden |
-|-----------------|---------------------------|-------|
-| Frontend        | Vue 3 + Composition API   | Reactive, TypeScript-friendly, snel |
-| Taal            | TypeScript 5 (strict)     | Type safety, betere DX |
-| Build           | Vite 6                    | Snelle dev server, HMR, optimized builds |
-| State           | Pinia                     | Officiële Vue state management, simpel en type-safe |
-| Routing         | Vue Router 4              | SPA routing met animated transitions |
-| Utilities       | @vueuse/core              | Reactive utilities, localStorage, observers |
-| Styling         | Custom CSS                | Cyberpunk/neon dark theme, geen framework overhead |
-| Data            | File-based (localStorage) | Geen backend, puur lokaal |
-| Integraties     | MCP (GitHub, VS Code Chat History) | Commits en chat data via MCP servers |
+| Onderdeel   | Keuze                              | Reden                                               |
+| ----------- | ---------------------------------- | --------------------------------------------------- |
+| Frontend    | Vue 3 + Composition API            | Reactive, TypeScript-friendly, snel                 |
+| Taal        | TypeScript 5 (strict)              | Type safety, betere DX                              |
+| Build       | Vite 6                             | Snelle dev server, HMR, optimized builds            |
+| State       | Pinia                              | Officiële Vue state management, simpel en type-safe |
+| Routing     | Vue Router 4                       | SPA routing met animated transitions                |
+| Utilities   | @vueuse/core                       | Reactive utilities, localStorage, observers         |
+| Styling     | Custom CSS                         | Cyberpunk/neon dark theme, geen framework overhead  |
+| Data        | File-based (localStorage)          | Geen backend, puur lokaal                           |
+| Integraties | MCP (GitHub, VS Code Chat History) | Commits en chat data via MCP servers                |
 
 ## Architectuuroverzicht
 
@@ -62,6 +64,7 @@ De tool is bedoeld voor lokaal gebruik door individuele ontwikkelaars en teamgen
 ```
 
 ### Data Flow
+
 1. **Settings** → Gebruiker configureert root folders en enabled sources
 2. **Project Discovery** → Root folders worden gescand (1 niveau diep) voor projectmappen
 3. **Connector Fetch** → Elke enabled connector haalt entries op per project
@@ -70,15 +73,16 @@ De tool is bedoeld voor lokaal gebruik door individuele ontwikkelaars en teamgen
 6. **Reactive Views** → Alle views reageren real-time op source toggles
 
 ### Connector Interface
+
 ```typescript
 interface SourceConnector {
-  type: SourceType          // 'commit' | 'chat' | 'file-change' | ...
-  label: string             // Weergavenaam
-  color: string             // CSS variable naam
-  icon: string              // Lucide icon naam
-  enabled: boolean
-  fetch(project): Promise<InsightEntry[]>
-  validate(entry): ValidationResult
+  type: SourceType; // 'commit' | 'chat' | 'file-change' | ...
+  label: string; // Weergavenaam
+  color: string; // CSS variable naam
+  icon: string; // Lucide icon naam
+  enabled: boolean;
+  fetch(project): Promise<InsightEntry[]>;
+  validate(entry): ValidationResult;
 }
 ```
 
@@ -87,6 +91,7 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 ## Implementatiefasen
 
 ### Fase 1 — MVP (Fundament)
+
 - [x] Project setup (Vue 3 + Vite + TypeScript + Pinia)
 - [x] Routing met animated page transitions
 - [x] Cyberpunk/neon dark theme CSS
@@ -102,6 +107,7 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 - [ ] npm install en dev server validatie
 
 ### Fase 2 — MCP Integratie
+
 - [x] Git Commit connector via local git log (Vite API plugin)
 - [x] File Change connector via git log --name-status (Vite API plugin)
 - [x] Project auto-discovery vanuit root folders (Vite dev server middleware)
@@ -110,14 +116,27 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 - [x] Real data in alle views
 
 ### Fase 3 — Polish & UX
+
 - [ ] Animated neon tile entrance effects (staggered)
 - [ ] Voortgangsindicatoren bij data loading
-- [ ] Zoekfunctie in timeline en chats
+- [x] Zoekfunctie in timeline en chats (BM25 + hybrid vector search via SearchView)
 - [ ] Keyboard shortcuts
 - [ ] Responsive layout (mobile-friendly sidebar)
 - [ ] Error handling en retry UI
 
+### Fase 3b — Search Verbetering
+
+- [x] BM25 zoekopdrachten op chatsessies indexeren op title + beschrijving
+- [x] Hybrid search: BM25 + vector embeddings (GitHub Models)
+- [x] RAG Ask-functie met tijdvenster context (commits + volledige chatsessies)
+- [x] **Chat inhoud volledig geïndexeerd in BM25** — user prompts + AI antwoorden (strip `<thinking>` en tool calls)
+  - `buildIndexableText()` in `packages/chat-mcp/src/formatter.ts`
+  - Recap-delta strategie: detecteer laatste samenvatting-beurt, indexeer alleen die + latere beurten
+  - Beide indices bijgewerkt: browser-side (`src/search/index-builder.ts`) én chat-mcp server-side (`packages/chat-mcp/src/search-tools.ts`)
+  - Content gewicht ×1 (lager dan title ×3) voor correcte ranking
+
 ### Fase 4 — Uitbreiding Bronnen
+
 - [ ] Teams communicatie connector (voorbereid)
 - [ ] Email communicatie connector (voorbereid)
 - [ ] Output generatie (rapporten, samenvattingen)
@@ -125,12 +144,14 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 - [ ] Connector configuratie per project
 
 ### Fase 5 — Distributie
+
 - [ ] README met setup instructies
 - [ ] GitHub Actions CI (lint, type-check, build)
 - [ ] npm package publicatie naar GitHub Packages
 - [ ] Versie management en changelog
 
 ## Openstaande vragen
+
 - Hoe worden MCP servers bereikbaar gemaakt vanuit de browser runtime? (Waarschijnlijk via een thin local node process of VS Code extension host)
 - Welke Teams/Email API's worden uiteindelijk gebruikt?
 - Wil je per-project connector configuratie (bijv. specifieke branches/remotes)?

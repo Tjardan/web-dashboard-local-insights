@@ -141,3 +141,34 @@ To add a new source:
 2. Export from `src/connectors/index.ts`
 3. Register in store initialization
 4. Add a `neon-badge--{type}` CSS class with appropriate color
+
+### Search & BM25 Indexing
+
+Both the browser-side BM25 index (`src/search/`) and the chat-mcp server-side index
+(`packages/chat-mcp/src/search-tools.ts`) index actual **chat turn content** — not just titles.
+
+**How chat content enters the index:**
+
+1. `listSessions({ includeIndexableText: true })` — calls `buildIndexableText()` per session
+2. `buildIndexableText()` strips `<thinking>…</thinking>` blocks and excludes tool calls
+3. **Recap-delta strategy**: `detectLastRecapTurn()` scans turns for the last user message
+   asking for a summary/recap (Dutch + English keywords, ≤ 300 chars, sessions with 8+ turns).
+   If found, only indexes the summary AI response + all subsequent turns.
+   If not found, indexes all turns (user messages + stripped AI responses).
+4. Hard cap: 100,000 chars per session to prevent runaway memory
+5. Text is stored in `SessionSummary.indexableText` and passed through:
+   - API: `GET /api/chat-sessions` → connector → `meta.extra.indexableText`
+   - BM25 field weight 1 (lower than title ×3, workspace/project ×2)
+   - Vector doc: first 2,000 chars appended for semantic search
+
+**Field weights for chat entries:**
+
+| Field                          | Weight |
+| ------------------------------ | ------ |
+| title                          | ×3     |
+| description                    | ×2     |
+| projectId                      | ×2     |
+| turn content (`indexableText`) | ×1     |
+
+**Cache key**: `/api/chat-sessions` uses server cache key `chat-sessions-v2:{filter}` (TTL 2 min).
+If you change the shape of `indexableText`, bump the cache key version to avoid stale responses.
