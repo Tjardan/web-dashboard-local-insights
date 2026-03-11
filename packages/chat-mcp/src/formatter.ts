@@ -313,41 +313,32 @@ export function formatSessionAsMarkdown(
 const THINKING_STRIP_RE = /<thinking>[\s\S]*?<\/thinking>/g;
 
 /**
- * Recap-turn detection keywords (Dutch + English).
- * Matched as substrings after lowercasing.
+ * VS Code Copilot emits structured <analysis>…</analysis><summary>…</summary>
+ * blocks when it compacts a session (the /compact command or auto-triggered when
+ * the context window fills up). We detect these to identify a genuine compact turn.
+ *
+ * Only the <summary> block is indexed — <analysis> contains internal model
+ * reasoning and is intentionally excluded.
  */
-const RECAP_KEYWORDS = [
-  "summary",
-  "summarize",
-  "summarise",
-  "recap",
-  "samenvatting",
-  "samenvatten",
-  "samenvat",
-  "overzicht",
-  "samenvattend",
-  "so far",
-  "what have we done",
-  "what did we",
-  "wat hebben we",
-  "wat is er",
-];
+const SUMMARY_BLOCK_RE = /<summary>([\s\S]*?)<\/summary>/;
 
 /**
- * Detect the last turn where the user asked for a recap/summary.
- * Only triggers in sessions with at least 8 turns (avoid false positives for short sessions).
- * Only matches short user messages (≤ 300 chars) to avoid "summarize this code..." prompts
- * that are really just feature requests.
- * Returns the turn index of the last recap turn, or null if none found.
+ * Extract the plain text content of the <summary> block from a VS Code /compact
+ * response. Returns null if no <summary> block is present.
+ */
+function extractRecapContent(aiResponse: string): string | null {
+  const summary = SUMMARY_BLOCK_RE.exec(aiResponse)?.[1]?.trim() ?? "";
+  return summary || null;
+}
+
+/**
+ * Detect the last turn where the AI responded with a structured
+ * <analysis>…</analysis><summary>…</summary> recap.
+ * Returns the turn index, or null if none found.
  */
 export function detectLastRecapTurn(turns: ConversationTurn[]): number | null {
-  if (turns.length < 8) return null;
-
   for (let i = turns.length - 1; i >= 0; i--) {
-    const msg = turns[i].userMessage;
-    if (!msg || msg.length > 300) continue;
-    const lower = msg.toLowerCase();
-    if (RECAP_KEYWORDS.some((kw) => lower.includes(kw))) {
+    if (extractRecapContent(turns[i].aiResponse) !== null) {
       return i;
     }
   }
@@ -363,9 +354,11 @@ const INDEXABLE_TEXT_MAX_CHARS = 100_000;
  * Strategy:
  * 1. Strip <thinking>…</thinking> blocks from all AI responses.
  *    Tool call text is already excluded (stored in separate toolCalls[] by buildTurns()).
- * 2. Detect the last recap/summary turn (detectLastRecapTurn):
- *    - If found at index N: include recap turn's stripped AI response + all turns after N (user + AI).
- *    - If not found: include ALL user messages + ALL stripped AI responses.
+ * 2. Detect the last /compact turn (detectLastRecapTurn) — identified by a
+ *    <summary>…</summary> block in the AI response (VS Code /compact output):
+ *    - If found at index N: use only the <summary> text as baseline + all turns after N.
+ *      The <analysis> block (internal model reasoning) is intentionally excluded.
+ *    - If not found: index ALL user messages + ALL stripped AI responses.
  * 3. Safety cap at INDEXABLE_TEXT_MAX_CHARS characters.
  */
 export function buildIndexableText(turns: ConversationTurn[]): string {
@@ -374,11 +367,9 @@ export function buildIndexableText(turns: ConversationTurn[]): string {
   const parts: string[] = [];
 
   if (recapIdx !== null) {
-    // Include the summary content of the recap turn as the baseline
-    const recapAI = turns[recapIdx].aiResponse
-      .replace(THINKING_STRIP_RE, "")
-      .trim();
-    if (recapAI) parts.push(recapAI);
+    // Use the structured recap content (analysis + summary, tags stripped) as baseline
+    const recapContent = extractRecapContent(turns[recapIdx].aiResponse);
+    if (recapContent) parts.push(recapContent);
 
     // Include all subsequent turns in full
     for (let i = recapIdx + 1; i < turns.length; i++) {
