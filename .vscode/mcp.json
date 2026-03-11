@@ -7,11 +7,6 @@
     "awesome-copilot": {
       "type": "http",
       "url": "https://mcp.awesome-copilot.com/sse"
-    },
-    "devpulse": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["${workspaceFolder}/packages/chat-mcp/dist/mcp-server.js"]
     }
   }
 }
