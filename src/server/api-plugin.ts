@@ -462,6 +462,7 @@ export function devPulseApiPlugin(): Plugin {
                 const sessions = await listSessions({
                   workspaceFilter,
                   sort: "newest",
+                  includeIndexableText: true,
                 });
                 return sendJson(
                   res,
@@ -470,7 +471,7 @@ export function devPulseApiPlugin(): Plugin {
               }
 
               // Full fetch — server cache (TTL 2 min), chat files change frequently
-              const ck = `chat-sessions:${workspaceFilter ?? ""}`;
+              const ck = `chat-sessions-v2:${workspaceFilter ?? ""}`;
               const cached = cacheRead<unknown[]>(ck);
               if (cached && isCacheFresh(cached, 120)) {
                 return sendJson(res, cached.data);
@@ -480,6 +481,7 @@ export function devPulseApiPlugin(): Plugin {
                 workspaceFilter,
                 sort: "newest",
                 limit: limit ? parseInt(limit, 10) : undefined,
+                includeIndexableText: true,
               });
               cacheWrite(ck, sessions);
               return sendJson(res, sessions);

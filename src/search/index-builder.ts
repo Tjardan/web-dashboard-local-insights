@@ -44,6 +44,10 @@ export function entryToBM25Doc(entry: InsightEntry): BM25Document {
         { text: meta.title, weight: 3 },
         { text: meta.description ?? "", weight: 2 },
         { text: entry.projectId.replace(/-/g, " "), weight: 2 },
+        {
+          text: (meta.extra?.indexableText as string | undefined) ?? "",
+          weight: 1,
+        },
       ],
     };
   }
@@ -86,12 +90,14 @@ export function entryToVectorDoc(entry: InsightEntry): VectorDocument {
       .filter(Boolean)
       .join("\n");
   } else if (meta.source === "chat") {
+    const indexableText = meta.extra?.indexableText as string | undefined;
     text = [
       `Project: ${entry.projectId}`,
       `Type: Copilot chat session`,
       `Title: ${meta.title}`,
       meta.description ? `Summary: ${meta.description}` : "",
       `Date: ${meta.timestamp}`,
+      indexableText ? indexableText.slice(0, 2000) : "",
     ]
       .filter(Boolean)
       .join("\n");
