@@ -9,7 +9,7 @@ import type {
   ParsedSession,
   RawChatRequest,
 } from "./types.js";
-import { buildTurns } from "./formatter.js";
+import { buildTurns, buildIndexableText } from "./formatter.js";
 
 // ─── Platform-aware storage root ────────────────────────────────────────────
 
@@ -236,6 +236,8 @@ export interface ListSessionsOptions {
   sort?: "newest" | "oldest";
   limit?: number;
   offset?: number;
+  /** When true, populate SessionSummary.indexableText with stripped turn content for BM25 indexing. */
+  includeIndexableText?: boolean;
 }
 
 export async function listSessions(
@@ -250,14 +252,20 @@ export async function listSessions(
       const snapshot = await readFullSnapshot(filePath);
       if (!snapshot || !snapshot.requests?.length) return;
 
-      const totalChars = snapshot.requests.reduce((acc, req) => {
-        const user = req.message?.text?.length ?? 0;
-        const ai = buildTurns([req]).reduce(
-          (a, t) => a + t.aiResponse.length,
-          0,
-        );
-        return acc + user + ai;
+      const turns = buildTurns(snapshot.requests);
+
+      const totalChars = turns.reduce((acc, t) => {
+        return acc + t.userMessage.length + t.aiResponse.length;
       }, 0);
+
+      let indexableText: string | undefined;
+      if (opts.includeIndexableText) {
+        try {
+          indexableText = buildIndexableText(turns);
+        } catch {
+          // Silently skip — one bad session won't break the index
+        }
+      }
 
       summaries.push({
         id: snapshot.sessionId ?? sessionId,
@@ -273,6 +281,7 @@ export async function listSessions(
         lastModified: mtime.toISOString(),
         messageCount: snapshot.requests.length,
         totalChars,
+        indexableText,
       });
     }),
   );

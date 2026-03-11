@@ -37,7 +37,7 @@ interface IndexedEntry {
   creationDate: string;
   lastModified: string;
   messageCount: number;
-  /** Concatenated user messages (for snippet extraction) */
+  /** Stripped turn content (user messages + AI answers, no thinking/tool calls) for BM25 + snippet extraction */
   text: string;
 }
 
@@ -50,11 +50,14 @@ async function ensureIndex(workspaceFilter?: string): Promise<void> {
   const now = new Date();
   if (indexedAt && now.getTime() - indexedAt.getTime() < INDEX_TTL_MS) return;
 
-  const sessions = await listSessions({ workspaceFilter, sort: "newest" });
+  const sessions = await listSessions({
+    workspaceFilter,
+    sort: "newest",
+    includeIndexableText: true,
+  });
   indexedEntries = [];
 
   for (const s of sessions) {
-    // Build text from title only (lightweight — avoid reading all JSONL files)
     indexedEntries.push({
       id: s.id,
       workspacePath: s.workspacePath,
@@ -63,7 +66,7 @@ async function ensureIndex(workspaceFilter?: string): Promise<void> {
       creationDate: s.creationDate,
       lastModified: s.lastModified,
       messageCount: s.messageCount,
-      text: s.title,
+      text: s.indexableText ?? s.title,
     });
   }
 
@@ -72,6 +75,7 @@ async function ensureIndex(workspaceFilter?: string): Promise<void> {
     fields: [
       { text: e.title, weight: 3 },
       { text: e.workspaceName, weight: 2 },
+      { text: e.text, weight: 1 },
     ],
   }));
 

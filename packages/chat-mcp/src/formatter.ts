@@ -308,6 +308,99 @@ export function formatSessionAsMarkdown(
   return lines.join("\n");
 }
 
+// ─── Indexable text extraction ───────────────────────────────────────────────
+
+const THINKING_STRIP_RE = /<thinking>[\s\S]*?<\/thinking>/g;
+
+/**
+ * Recap-turn detection keywords (Dutch + English).
+ * Matched as substrings after lowercasing.
+ */
+const RECAP_KEYWORDS = [
+  "summary",
+  "summarize",
+  "summarise",
+  "recap",
+  "samenvatting",
+  "samenvatten",
+  "samenvat",
+  "overzicht",
+  "samenvattend",
+  "so far",
+  "what have we done",
+  "what did we",
+  "wat hebben we",
+  "wat is er",
+];
+
+/**
+ * Detect the last turn where the user asked for a recap/summary.
+ * Only triggers in sessions with at least 8 turns (avoid false positives for short sessions).
+ * Only matches short user messages (≤ 300 chars) to avoid "summarize this code..." prompts
+ * that are really just feature requests.
+ * Returns the turn index of the last recap turn, or null if none found.
+ */
+export function detectLastRecapTurn(turns: ConversationTurn[]): number | null {
+  if (turns.length < 8) return null;
+
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const msg = turns[i].userMessage;
+    if (!msg || msg.length > 300) continue;
+    const lower = msg.toLowerCase();
+    if (RECAP_KEYWORDS.some((kw) => lower.includes(kw))) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/** Safety cap: max chars of indexable text per session. */
+const INDEXABLE_TEXT_MAX_CHARS = 100_000;
+
+/**
+ * Build a plain-text representation of a chat session suitable for BM25 indexing.
+ *
+ * Strategy:
+ * 1. Strip <thinking>…</thinking> blocks from all AI responses.
+ *    Tool call text is already excluded (stored in separate toolCalls[] by buildTurns()).
+ * 2. Detect the last recap/summary turn (detectLastRecapTurn):
+ *    - If found at index N: include recap turn's stripped AI response + all turns after N (user + AI).
+ *    - If not found: include ALL user messages + ALL stripped AI responses.
+ * 3. Safety cap at INDEXABLE_TEXT_MAX_CHARS characters.
+ */
+export function buildIndexableText(turns: ConversationTurn[]): string {
+  const recapIdx = detectLastRecapTurn(turns);
+
+  const parts: string[] = [];
+
+  if (recapIdx !== null) {
+    // Include the summary content of the recap turn as the baseline
+    const recapAI = turns[recapIdx].aiResponse
+      .replace(THINKING_STRIP_RE, "")
+      .trim();
+    if (recapAI) parts.push(recapAI);
+
+    // Include all subsequent turns in full
+    for (let i = recapIdx + 1; i < turns.length; i++) {
+      const t = turns[i];
+      if (t.userMessage.trim()) parts.push(t.userMessage.trim());
+      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
+      if (ai) parts.push(ai);
+    }
+  } else {
+    // No recap found — index everything
+    for (const t of turns) {
+      if (t.userMessage.trim()) parts.push(t.userMessage.trim());
+      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
+      if (ai) parts.push(ai);
+    }
+  }
+
+  const text = parts.join("\n");
+  if (text.length <= INDEXABLE_TEXT_MAX_CHARS) return text;
+  return text.slice(0, INDEXABLE_TEXT_MAX_CHARS) + "\n[…gekort voor index]";
+}
+
 // ─── Snippet extraction ──────────────────────────────────────────────────────
 
 export function extractSnippet(

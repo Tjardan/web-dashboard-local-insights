@@ -74,6 +74,11 @@ export interface SessionSummary {
   messageCount: number;
   /** Approximate character length of all message text (user + AI) */
   totalChars: number;
+  /**
+   * Stripped, BM25-ready text: user messages + AI answers (no thinking/tool calls).
+   * Only populated when listSessions() is called with includeIndexableText: true.
+   */
+  indexableText?: string;
 }
 
 /**
