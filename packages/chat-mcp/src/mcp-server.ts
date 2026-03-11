@@ -25,6 +25,16 @@
 
 import { searchBM25, searchAsk, getIndexStatus } from "./search-tools.js";
 
+// ─── Token estimation ──────────────────────────────────────────────────────────
+
+/**
+ * Rough token estimate: 1 token ≈ 4 characters (works well for mixed Dutch/English/code).
+ * Not exact — use for context-window budgeting only.
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 // ─── JSON-RPC types ────────────────────────────────────────────────────────────
 
 interface JsonRpcRequest {
@@ -178,11 +188,21 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
               topK: args["topK"] as number | undefined,
               since: args["since"] as string | undefined,
             });
+            const searchJson = JSON.stringify(results, null, 2);
+            const searchMeta = {
+              resultCount: results.length,
+              chars: searchJson.length,
+              tokenEstimate: estimateTokens(searchJson),
+            };
             respond(id, {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(results, null, 2),
+                  text: searchJson,
+                },
+                {
+                  type: "text",
+                  text: `_meta: ${JSON.stringify(searchMeta)}`,
                 },
               ],
             });
@@ -197,11 +217,23 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
               topK: args["topK"] as number | undefined,
               model: args["model"] as string | undefined,
             });
+            const answerText = `${result.answer}\n\n---\n_Model: ${result.model} · ${result.tokensUsed} LLM-tokens · ${result.sources.length} bronnen_`;
+            const askMeta = {
+              llmTokensUsed: result.tokensUsed,
+              model: result.model,
+              sourceCount: result.sources.length,
+              answerChars: result.answer.length,
+              responseTokenEstimate: estimateTokens(answerText),
+            };
             respond(id, {
               content: [
                 {
                   type: "text",
-                  text: `${result.answer}\n\n---\n_Model: ${result.model} · ${result.tokensUsed} tokens · ${result.sources.length} bronnen_`,
+                  text: answerText,
+                },
+                {
+                  type: "text",
+                  text: `_meta: ${JSON.stringify(askMeta)}`,
                 },
               ],
             });
@@ -210,11 +242,20 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
 
           case "devpulse_index_status": {
             const status = getIndexStatus();
+            const statusJson = JSON.stringify(status, null, 2);
+            const statusMeta = {
+              chars: statusJson.length,
+              tokenEstimate: estimateTokens(statusJson),
+            };
             respond(id, {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(status, null, 2),
+                  text: statusJson,
+                },
+                {
+                  type: "text",
+                  text: `_meta: ${JSON.stringify(statusMeta)}`,
                 },
               ],
             });
