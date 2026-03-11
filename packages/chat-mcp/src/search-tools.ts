@@ -25,7 +25,7 @@
 
 import { BM25Index, type BM25Document } from "./bm25.js";
 import { listSessions, readSession } from "./storage.js";
-import { extractSnippet } from "./formatter.js";
+import { extractSnippet, buildLLMContext } from "./formatter.js";
 
 // ─── In-memory index (per workspace-filter, rebuilt on TTL expiry) ────────────
 
@@ -188,13 +188,8 @@ export async function searchAsk(
     try {
       const session = await readSession(src.id);
       if (!session) continue;
-      const snippet = session.turns
-        .map(
-          (t) =>
-            `Q: ${t.userMessage.slice(0, 300)}\nA: ${t.aiResponse.slice(0, 300)}`,
-        )
-        .slice(0, 3)
-        .join("\n---\n");
+      const snippet = buildLLMContext(session.turns)
+        .slice(0, 2000);
       const date = new Date(src.lastModified).toLocaleDateString("nl-NL");
       contextParts.push(
         `[CHAT ${date} — ${src.workspace}] ${src.title}\n${snippet}`,
@@ -277,9 +272,11 @@ export function getIndexStatus(): IndexStatusResult {
   const now = new Date();
   // Report on the global (unfiltered) cache entry, falling back to the most recently built one
   const global = indexCaches.get("");
-  const latest = global ?? [...indexCaches.values()].sort(
-    (a, b) => b.indexedAt.getTime() - a.indexedAt.getTime(),
-  )[0];
+  const latest =
+    global ??
+    [...indexCaches.values()].sort(
+      (a, b) => b.indexedAt.getTime() - a.indexedAt.getTime(),
+    )[0];
 
   const isStale =
     !latest || now.getTime() - latest.indexedAt.getTime() > INDEX_TTL_MS;

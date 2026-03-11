@@ -354,46 +354,62 @@ const INDEXABLE_TEXT_MAX_CHARS = 100_000;
 
 /**
  * Build a plain-text representation of a chat session suitable for BM25 indexing.
- *
- * Strategy:
- * 1. Strip <thinking>…</thinking> blocks from all AI responses.
- *    Tool call text is already excluded (stored in separate toolCalls[] by buildTurns()).
- * 2. Detect the last /compact turn (detectLastRecapTurn) — identified by a
- *    <summary>…</summary> block in the AI response (VS Code /compact output):
- *    - If found at index N: use only the <summary> text as baseline + all turns after N.
- *      The <analysis> block (internal model reasoning) is intentionally excluded.
- *    - If not found: index ALL user messages + ALL stripped AI responses.
- * 3. Safety cap at INDEXABLE_TEXT_MAX_CHARS characters.
+ * Always indexes ALL turns so the full session is searchable regardless of /compact.
+ * Compact summaries are also included so their condensed content is indexed too.
+ * Safety cap at INDEXABLE_TEXT_MAX_CHARS characters.
  */
 export function buildIndexableText(turns: ConversationTurn[]): string {
-  const recapIdx = detectLastRecapTurn(turns);
-
   const parts: string[] = [];
 
-  if (recapIdx !== null) {
-    // Use the <summary> content from the /compact result as baseline
-    const recapContent = extractRecapContent(turns[recapIdx].compactSummary ?? "");
-    if (recapContent) parts.push(recapContent);
-
-    // Include all subsequent turns in full
-    for (let i = recapIdx + 1; i < turns.length; i++) {
-      const t = turns[i];
-      if (t.userMessage.trim()) parts.push(t.userMessage.trim());
-      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
-      if (ai) parts.push(ai);
-    }
-  } else {
-    // No recap found — index everything
-    for (const t of turns) {
-      if (t.userMessage.trim()) parts.push(t.userMessage.trim());
-      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
-      if (ai) parts.push(ai);
+  for (const t of turns) {
+    if (t.userMessage.trim()) parts.push(t.userMessage.trim());
+    const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
+    if (ai) parts.push(ai);
+    // Also include compact summary content so it's indexed
+    if (t.compactSummary) {
+      const summary = extractRecapContent(t.compactSummary);
+      if (summary) parts.push(summary);
     }
   }
 
   const text = parts.join("\n");
   if (text.length <= INDEXABLE_TEXT_MAX_CHARS) return text;
   return text.slice(0, INDEXABLE_TEXT_MAX_CHARS) + "\n[…gekort voor index]";
+}
+
+/**
+ * Build token-efficient context to pass to an LLM for a retrieved session.
+ * Applies recap-delta: if a /compact turn exists at index N, returns only the
+ * <summary> content + all turns after N — skipping the verbose pre-compact history.
+ * Falls back to all turns when no /compact is present.
+ * Safety cap at LLM_CONTEXT_MAX_CHARS characters.
+ */
+const LLM_CONTEXT_MAX_CHARS = 50_000;
+
+export function buildLLMContext(turns: ConversationTurn[]): string {
+  const recapIdx = detectLastRecapTurn(turns);
+  const parts: string[] = [];
+
+  if (recapIdx !== null) {
+    const recapContent = extractRecapContent(turns[recapIdx].compactSummary ?? "");
+    if (recapContent) parts.push(recapContent);
+    for (let i = recapIdx + 1; i < turns.length; i++) {
+      const t = turns[i];
+      if (t.userMessage.trim()) parts.push(`Q: ${t.userMessage.trim()}`);
+      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
+      if (ai) parts.push(`A: ${ai}`);
+    }
+  } else {
+    for (const t of turns) {
+      if (t.userMessage.trim()) parts.push(`Q: ${t.userMessage.trim()}`);
+      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
+      if (ai) parts.push(`A: ${ai}`);
+    }
+  }
+
+  const text = parts.join("\n");
+  if (text.length <= LLM_CONTEXT_MAX_CHARS) return text;
+  return text.slice(0, LLM_CONTEXT_MAX_CHARS) + "\n[…gekort voor context]";
 }
 
 // ─── Snippet extraction ──────────────────────────────────────────────────────

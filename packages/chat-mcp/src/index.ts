@@ -10,6 +10,7 @@ export {
   buildTurns,
   formatSessionAsMarkdown,
   extractSnippet,
+  buildLLMContext,
 } from "./formatter.js";
 export type {
   SessionSummary,
