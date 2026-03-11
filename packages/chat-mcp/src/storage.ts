@@ -125,6 +125,7 @@ export async function readFullSnapshot(
     if (!snapshot.requests) snapshot.requests = [];
 
     const latestResponses = new Map<number, unknown[]>();
+    const latestResults = new Map<number, RawChatRequest["result"]>();
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
@@ -154,6 +155,12 @@ export async function readFullSnapshot(
         const k = patch.k;
         if (k.length === 1 && k[0] === "customTitle") {
           snapshot.customTitle = patch.v as string;
+        } else if (
+          k.length === 3 &&
+          k[0] === "requests" &&
+          k[2] === "result"
+        ) {
+          latestResults.set(k[1] as number, patch.v as RawChatRequest["result"]);
         }
       }
     }
@@ -162,6 +169,12 @@ export async function readFullSnapshot(
       if (snapshot.requests[idx]) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (snapshot.requests[idx] as any).response = response;
+      }
+    }
+
+    for (const [idx, result] of latestResults) {
+      if (snapshot.requests[idx]) {
+        snapshot.requests[idx].result = result;
       }
     }
 

@@ -258,6 +258,7 @@ export function buildTurns(requests: RawChatRequest[]): ConversationTurn[] {
 
     const aiResponse = textParts.join("\n\n");
     const ts = req.timestamp ? new Date(req.timestamp).toISOString() : "";
+    const compactSummary = req.result?.metadata?.summary?.text ?? undefined;
 
     return {
       turnIndex: i,
@@ -266,6 +267,7 @@ export function buildTurns(requests: RawChatRequest[]): ConversationTurn[] {
       aiResponse,
       modelId: req.modelId ?? "",
       toolCalls,
+      compactSummary,
     };
   });
 }
@@ -324,21 +326,23 @@ const SUMMARY_BLOCK_RE = /<summary>([\s\S]*?)<\/summary>/;
 
 /**
  * Extract the plain text content of the <summary> block from a VS Code /compact
- * response. Returns null if no <summary> block is present.
+ * response. The full response (result.metadata.summary) contains both
+ * <analysis>…</analysis> (internal reasoning) and <summary>…</summary>.
+ * Returns only the <summary> text, or null if none found.
  */
-function extractRecapContent(aiResponse: string): string | null {
-  const summary = SUMMARY_BLOCK_RE.exec(aiResponse)?.[1]?.trim() ?? "";
+function extractRecapContent(compactSummary: string): string | null {
+  const summary = SUMMARY_BLOCK_RE.exec(compactSummary)?.[1]?.trim() ?? "";
   return summary || null;
 }
 
 /**
- * Detect the last turn where the AI responded with a structured
- * <analysis>…</analysis><summary>…</summary> recap.
- * Returns the turn index, or null if none found.
+ * Detect the last turn where VS Code ran /compact (result.metadata.summary
+ * contains a <summary>…</summary> block). Returns the turn index, or null.
  */
 export function detectLastRecapTurn(turns: ConversationTurn[]): number | null {
   for (let i = turns.length - 1; i >= 0; i--) {
-    if (extractRecapContent(turns[i].aiResponse) !== null) {
+    const cs = turns[i].compactSummary;
+    if (cs && extractRecapContent(cs) !== null) {
       return i;
     }
   }
@@ -367,8 +371,8 @@ export function buildIndexableText(turns: ConversationTurn[]): string {
   const parts: string[] = [];
 
   if (recapIdx !== null) {
-    // Use the structured recap content (analysis + summary, tags stripped) as baseline
-    const recapContent = extractRecapContent(turns[recapIdx].aiResponse);
+    // Use the <summary> content from the /compact result as baseline
+    const recapContent = extractRecapContent(turns[recapIdx].compactSummary ?? "");
     if (recapContent) parts.push(recapContent);
 
     // Include all subsequent turns in full

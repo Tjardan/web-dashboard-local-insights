@@ -34,7 +34,11 @@ export interface RawChatRequest {
   agent?: { id?: string; name?: string; fullName?: string };
   result?: {
     timings?: { firstProgress?: number; totalElapsed?: number };
-    metadata?: { codeBlocks?: unknown[] };
+    metadata?: {
+      codeBlocks?: unknown[];
+      /** Full model response from a /compact call — contains <analysis>…</analysis><summary>…</summary>. */
+      summary?: { toolCallRoundId?: string; text?: string };
+    };
   };
 }
 
@@ -107,6 +111,11 @@ export interface ConversationTurn {
   modelId: string;
   /** Tool invocations extracted from this turn's response */
   toolCalls: ToolCallInfo[];
+  /**
+   * Full /compact response text from result.metadata.summary.
+   * Contains <analysis>…</analysis><summary>…</summary> when VS Code ran /compact.
+   */
+  compactSummary?: string;
 }
 
 /**
