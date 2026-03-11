@@ -155,12 +155,11 @@ export async function readFullSnapshot(
         const k = patch.k;
         if (k.length === 1 && k[0] === "customTitle") {
           snapshot.customTitle = patch.v as string;
-        } else if (
-          k.length === 3 &&
-          k[0] === "requests" &&
-          k[2] === "result"
-        ) {
-          latestResults.set(k[1] as number, patch.v as RawChatRequest["result"]);
+        } else if (k.length === 3 && k[0] === "requests" && k[2] === "result") {
+          latestResults.set(
+            k[1] as number,
+            patch.v as RawChatRequest["result"],
+          );
         }
       }
     }
