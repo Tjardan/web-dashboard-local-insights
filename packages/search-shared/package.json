@@ -1,13 +1,10 @@
 {
-  "name": "@devpulse/chat-mcp",
+  "name": "@devpulse/search-shared",
   "version": "1.0.0",
-  "description": "VS Code chat history storage reader — shared package for DevPulse",
+  "description": "Shared BM25+ search engine for DevPulse (frontend + MCP server)",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "bin": {
-    "devpulse-mcp": "dist/mcp-server.js"
-  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -18,11 +15,7 @@
     "build": "tsc",
     "build:watch": "tsc --watch"
   },
-  "dependencies": {
-    "@devpulse/search-shared": "*"
-  },
   "devDependencies": {
-    "@types/node": "^22.0.0",
     "typescript": "~5.7.0"
   }
 }

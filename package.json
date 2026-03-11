@@ -10,11 +10,12 @@
     "dev": "npm run build:packages && vite",
     "dev:vite": "vite",
     "build": "npm run build:packages && vue-tsc -b && vite build",
-    "build:packages": "npm run build --workspace=packages/chat-mcp",
-    "build:packages:watch": "npm run build -- --watch --workspace=packages/chat-mcp",
+    "build:packages": "npm run build --workspace=packages/search-shared && npm run build --workspace=packages/chat-mcp",
+    "build:packages:watch": "npm run build -- --watch --workspace=packages/search-shared & npm run build -- --watch --workspace=packages/chat-mcp",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@devpulse/search-shared": "*",
     "@github/copilot-sdk": "^0.1.30",
     "@vueuse/core": "^12.0.0",
     "pinia": "^2.3.0",
