@@ -24,8 +24,8 @@
  */
 
 import { BM25Index, type BM25Document } from "./bm25.js";
-import { listSessions, readSession } from "./storage.js";
-import { extractSnippet, buildLLMContext } from "./formatter.js";
+import { listSessions } from "./storage.js";
+import { extractSnippet } from "./formatter.js";
 
 // ─── In-memory index (per workspace-filter, rebuilt on TTL expiry) ────────────
 
@@ -104,6 +104,10 @@ export interface SearchBM25Params {
   workspaceFilter?: string;
   topK?: number;
   since?: string;
+  /** When true, include session content (recap-delta indexable text) in each result */
+  includeContent?: boolean;
+  /** Max chars of content to include per session (default 8000) */
+  contentMaxChars?: number;
 }
 
 export interface SearchBM25Result {
@@ -116,6 +120,8 @@ export interface SearchBM25Result {
   lastModified: string;
   messageCount: number;
   snippet?: string;
+  /** Session content (recap-delta text) — only present when includeContent=true */
+  content?: string;
 }
 
 export async function searchBM25(
@@ -123,7 +129,8 @@ export async function searchBM25(
 ): Promise<SearchBM25Result[]> {
   const cache = await ensureIndex(params.workspaceFilter);
 
-  const topK = params.topK ?? 10;
+  const topK = params.topK ?? 6;
+  const contentMaxChars = params.contentMaxChars ?? 8000;
   const results = cache.bm25.search(params.query, topK);
 
   const enriched: SearchBM25Result[] = [];
@@ -148,116 +155,14 @@ export async function searchBM25(
         entry.text !== entry.title
           ? extractSnippet(entry.text, params.query, 160)
           : undefined,
+      content:
+        params.includeContent && entry.text !== entry.title
+          ? entry.text.slice(0, contentMaxChars)
+          : undefined,
     });
   }
 
   return enriched;
-}
-
-// ─── Tool: devpulse_search_ask ───────────────────────────────────────────────
-
-export interface SearchAskParams {
-  prompt: string;
-  /** GitHub PAT for GitHub Models API */
-  githubToken: string;
-  workspaceFilter?: string;
-  topK?: number;
-  model?: string;
-}
-
-export interface SearchAskResult {
-  answer: string;
-  model: string;
-  tokensUsed: number;
-  sources: SearchBM25Result[];
-}
-
-export async function searchAsk(
-  params: SearchAskParams,
-): Promise<SearchAskResult> {
-  // 1. BM25 retrieval
-  const sources = await searchBM25({
-    query: params.prompt,
-    workspaceFilter: params.workspaceFilter,
-    topK: params.topK ?? 12,
-  });
-
-  // 2. For top-5 results, read full session content for richer context
-  const contextParts: string[] = [];
-  for (const src of sources.slice(0, 5)) {
-    try {
-      const session = await readSession(src.id);
-      if (!session) continue;
-      const snippet = buildLLMContext(session.turns)
-        .slice(0, 2000);
-      const date = new Date(src.lastModified).toLocaleDateString("nl-NL");
-      contextParts.push(
-        `[CHAT ${date} — ${src.workspace}] ${src.title}\n${snippet}`,
-      );
-    } catch {
-      contextParts.push(`[CHAT — ${src.workspace}] ${src.title}`);
-    }
-  }
-
-  // Add remaining sources as title-only context
-  for (const src of sources.slice(5)) {
-    const date = new Date(src.lastModified).toLocaleDateString("nl-NL");
-    contextParts.push(`[CHAT ${date} — ${src.workspace}] ${src.title}`);
-  }
-
-  const context = contextParts.join("\n\n");
-
-  // 3. GitHub Models chat completion
-  const ENDPOINT = "https://models.inference.ai.azure.com";
-  const response = await fetch(`${ENDPOINT}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.githubToken}`,
-    },
-    body: JSON.stringify({
-      model: params.model ?? "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Je bent een behulpzame assistent die een ontwikkelaar helpt inzicht te krijgen in hun projecten op basis van Copilot chat sessies.
-Geef altijd een concreet, gestructureerd antwoord in het Nederlands.
-Verwijs specifiek naar projectnamen, data en details uit de context.
-Als je iets niet kunt beantwoorden op basis van de context, zeg dat dan eerlijk.
-
-Huidige datum: ${new Date().toLocaleDateString("nl-NL")}`,
-        },
-        {
-          role: "user",
-          content: `Context (meest relevante chat sessies):\n${context || "(geen relevante sessies gevonden)"}\n\nVraag: ${params.prompt}`,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 2048,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`GitHub Models error (${response.status}): ${body}`);
-  }
-
-  const data = (await response.json()) as {
-    choices: Array<{ message: { content: string } }>;
-    model: string;
-    usage: {
-      prompt_tokens: number;
-      completion_tokens: number;
-      total_tokens: number;
-    };
-  };
-
-  return {
-    answer: data.choices[0]?.message?.content ?? "",
-    model: data.model,
-    tokensUsed: data.usage.total_tokens,
-    sources,
-  };
 }
 
 // ─── Tool: devpulse_index_status ─────────────────────────────────────────────

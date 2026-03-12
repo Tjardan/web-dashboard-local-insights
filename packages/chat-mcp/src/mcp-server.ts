@@ -16,14 +16,13 @@
  * }
  *
  * Tools exposed:
- *   devpulse_search         — BM25 lexical search over chats
- *   devpulse_ask            — RAG + GitHub Models AI answer
+ *   devpulse_search         — BM25 lexical search over chats (with optional full content)
  *   devpulse_index_status   — Index statistics
  *
  * Protocol: JSON-RPC 2.0 over stdin/stdout (MCP spec).
  */
 
-import { searchBM25, searchAsk, getIndexStatus } from "./search-tools.js";
+import { searchBM25, getIndexStatus } from "./search-tools.js";
 
 // ─── Token estimation ──────────────────────────────────────────────────────────
 
@@ -80,7 +79,7 @@ const TOOLS = [
   {
     name: "devpulse_search",
     description:
-      "BM25+ lexical search over VS Code Copilot chat sessions. Fast, no API key required. Returns top-K matching sessions with score.",
+      "USE THIS TOOL to search through VS Code Copilot chat history. BM25+ lexical search — no API key or token required. Returns the top matching chat sessions with title, date, workspace, relevance score and optional full session content. Use this whenever the user asks about past chats, previous bugs, decisions, solutions or anything from chat history. For analysis or summarisation, set includeContent=true so the calling LLM can work directly with session content — no separate AI call needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -94,47 +93,25 @@ const TOOLS = [
         },
         topK: {
           type: "number",
-          description: "Maximum results to return (default 10)",
+          description: "Maximum results to return (default 6)",
         },
         since: {
           type: "string",
           description:
             "ISO-8601 date — only include sessions modified after this date (optional)",
         },
+        includeContent: {
+          type: "boolean",
+          description:
+            "When true, include the session content (recap-delta indexable text) in each result. Use this when you need to analyse or summarise what was discussed. The calling LLM handles the analysis — no token required.",
+        },
+        contentMaxChars: {
+          type: "number",
+          description:
+            "Max characters of content to include per session when includeContent=true (default 8000)",
+        },
       },
       required: ["query"],
-    },
-  },
-  {
-    name: "devpulse_ask",
-    description:
-      "RAG-based AI Q&A over Copilot chat sessions. Retrieves relevant sessions via BM25, then generates a structured answer using GitHub Models (gpt-4o-mini). Requires a GitHub Personal Access Token.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        prompt: {
-          type: "string",
-          description:
-            "Natural language question about your chats/commits (Dutch or English)",
-        },
-        githubToken: {
-          type: "string",
-          description: "GitHub Personal Access Token (ghp_ or github_pat_)",
-        },
-        workspaceFilter: {
-          type: "string",
-          description: "Filter context by workspace name or path (optional)",
-        },
-        topK: {
-          type: "number",
-          description: "Number of sessions to use as context (default 12)",
-        },
-        model: {
-          type: "string",
-          description: "GitHub Models model ID (default: gpt-4o-mini)",
-        },
-      },
-      required: ["prompt", "githubToken"],
     },
   },
   {
@@ -187,6 +164,8 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
               workspaceFilter: args["workspaceFilter"] as string | undefined,
               topK: args["topK"] as number | undefined,
               since: args["since"] as string | undefined,
+              includeContent: args["includeContent"] as boolean | undefined,
+              contentMaxChars: args["contentMaxChars"] as number | undefined,
             });
             const resultsJson = JSON.stringify(results, null, 2);
             const searchOutput = JSON.stringify(
@@ -203,21 +182,6 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
             );
             respond(id, {
               content: [{ type: "text", text: searchOutput }],
-            });
-            return;
-          }
-
-          case "devpulse_ask": {
-            const result = await searchAsk({
-              prompt: String(args["prompt"] ?? ""),
-              githubToken: String(args["githubToken"] ?? ""),
-              workspaceFilter: args["workspaceFilter"] as string | undefined,
-              topK: args["topK"] as number | undefined,
-              model: args["model"] as string | undefined,
-            });
-            const answerText = `${result.answer}\n\n---\n_meta: llmTokensUsed=${result.tokensUsed} · model=${result.model} · sources=${result.sources.length} · answerChars=${result.answer.length} · responseTokenEstimate=${estimateTokens(result.answer)}_`;
-            respond(id, {
-              content: [{ type: "text", text: answerText }],
             });
             return;
           }
