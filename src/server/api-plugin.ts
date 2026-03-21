@@ -19,6 +19,7 @@ import {
 } from "./teams-token.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — @github/copilot-sdk is a JS-only package without bundled types
+import type { SessionConfig } from "@github/copilot-sdk";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 
 function exec(cmd: string, args: string[], cwd: string): Promise<string> {
@@ -303,9 +304,9 @@ function parseGitLog(raw: string, sep: string) {
 // The client is lazily initialised on first use and kept alive for the
 // lifetime of the Vite dev-server process.
 
-let copilotClient: typeof CopilotClient | null = null;
+let copilotClient: CopilotClient | null = null;
 
-async function getCopilotClient(): Promise<typeof CopilotClient> {
+async function getCopilotClient(): Promise<CopilotClient> {
   if (copilotClient) return copilotClient;
   // Do NOT pass githubToken — use the gh CLI auth (same as robomo/agent-studio).
   // Passing a raw PAT causes 400 on listModels; the SDK's native auth flow works.
@@ -554,7 +555,7 @@ export function devPulseApiPlugin(): Plugin {
               // and will throw 400 for IDs it doesn't recognise at that layer.
               // Let the SDK use its default (claude-sonnet-4.6) unless overridden.
               const studioModel = process.env.STUDIO_MODEL;
-              const sessionConfig: Record<string, unknown> = {
+              const sessionConfig: SessionConfig = {
                 clientName: "devpulse-ai",
                 streaming: true,
                 onPermissionRequest: approveAll,
