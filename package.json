@@ -10,7 +10,8 @@
     "dev": "npm run build:packages && vite",
     "dev:vite": "vite",
     "build": "npm run build:packages && vue-tsc -b && vite build",
-    "build:packages": "npm run build --workspace=packages/search-shared && npm run build --workspace=packages/chat-mcp",
+    "build:packages": "npm run build --workspace=packages/search-shared && npm run build --workspace=packages/chat-mcp && npm run sync:packages",
+    "sync:packages": "node -e \"const{cpSync}=require('fs');['search-shared','chat-mcp'].forEach(p=>{try{cpSync('packages/'+p+'/dist','node_modules/@devpulse/'+p+'/dist',{recursive:true,force:true});}catch(e){}});console.log('dist synced to node_modules');\"",
     "build:packages:watch": "npm run build -- --watch --workspace=packages/search-shared & npm run build -- --watch --workspace=packages/chat-mcp",
     "preview": "vite preview"
   },

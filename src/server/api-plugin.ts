@@ -1,6 +1,7 @@
 /**
  * Vite server plugin — local API endpoints for filesystem & git access.
  * Runs on the Node.js dev server, NOT in the browser.
+ * @package @devpulse/chat-mcp v2
  */
 import type { Plugin } from "vite";
 import { execFile } from "node:child_process";
