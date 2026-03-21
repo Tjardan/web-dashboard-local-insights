@@ -28,6 +28,12 @@ const router = createRouter({
       meta: { transition: "slide-left" },
     },
     {
+      path: "/project/:id/chats",
+      name: "project-chats",
+      component: () => import("@/views/ProjectChatsView.vue"),
+      meta: { transition: "slide-left" },
+    },
+    {
       path: "/settings",
       name: "settings",
       component: () => import("@/views/SettingsView.vue"),

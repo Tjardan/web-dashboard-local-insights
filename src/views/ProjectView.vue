@@ -28,9 +28,7 @@ const entries = computed(() =>
 const daySections = computed(() => buildDaySections(entries.value));
 
 function openChats() {
-  router.push(
-    `/timeline?source=chat&project=${encodeURIComponent(projectId.value)}`,
-  );
+  router.push(`/project/${projectId.value}/chats`);
 }
 </script>
 
