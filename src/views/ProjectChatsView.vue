@@ -46,7 +46,6 @@ const chatEntries = computed(() =>
 const expandedChat = ref<string | null>(null);
 const loadedSessions = ref<Record<string, ParsedSession>>({});
 const loadingSession = ref<string | null>(null);
-const sessionListEl = ref<HTMLElement | null>(null);
 
 async function toggleChat(id: string) {
   if (expandedChat.value === id) {

@@ -9,10 +9,8 @@ import {
   setGithubToken,
   clearGithubToken,
   getGithubToken,
-  CHAT_MODELS,
   CLAUDE_MODELS,
   GITHUB_CHAT_MODELS,
-  getChatModel,
   CHAT_MODEL_DEFAULT,
 } from "@/search/github-models";
 
@@ -63,7 +61,6 @@ const timeRangeOptions: Array<{ label: string; value: number | undefined }> = [
 
 // Model selector — default is Claude Sonnet 4.6 (via Copilot SDK)
 const askModel = ref<string>(CHAT_MODEL_DEFAULT);
-const selectedModelInfo = computed(() => getChatModel(askModel.value));
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000)

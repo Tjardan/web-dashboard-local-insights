@@ -3,7 +3,7 @@ import { ref } from "vue";
 import type { EntryGroup } from "@/utils/timeline-grouping";
 import TimelineEntry from "./TimelineEntry.vue";
 
-const props = defineProps<{
+const { group, searchQuery, focusedEntryId } = defineProps<{
   group: EntryGroup;
   searchQuery?: string;
   focusedEntryId?: string;
