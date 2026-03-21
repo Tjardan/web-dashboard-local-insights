@@ -52,6 +52,9 @@ function loadSettings(): AppSettings {
     enabledSources: {
       commit: true,
       chat: true,
+      "file-change": true,
+      teams: false,
+      email: false,
     },
     untrackedProjects: [],
     trackedProjects: [],

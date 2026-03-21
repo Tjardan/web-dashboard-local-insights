@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useSettingsStore } from "@/stores/settings";
 import { useProjectsStore } from "@/stores/projects";
 import { getAllConnectors } from "@/connectors";
@@ -26,6 +26,12 @@ const teamsAuthLoading = ref(false);
 const teamsFilePath = ref(settingsStore.settings.teamsFilePath ?? "");
 const teamsFileMode = ref<"graph" | "file">(
   settingsStore.settings.teamsFilePath ? "file" : "graph",
+);
+
+const teamsRedirectUri = computed(() =>
+  typeof window !== "undefined"
+    ? `${window.location.origin}/auth/teams/callback`
+    : "http://localhost:5173/auth/teams/callback",
 );
 
 async function refreshTeamsAuthStatus() {
@@ -457,7 +463,7 @@ function removeFolder(path: string) {
             <p class="teams-config__hint">
               Gebruik <code class="inline-code">common</code> of je Tenant ID.
               Redirect URI voor Azure:
-              <code class="inline-code">{{ `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}/auth/teams/callback` }}</code>
+              <code class="inline-code">{{ teamsRedirectUri }}</code>
             </p>
           </div>
           <button
