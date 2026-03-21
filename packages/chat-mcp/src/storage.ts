@@ -264,7 +264,16 @@ export async function listSessions(
       const snapshot = await readFullSnapshot(filePath);
       if (!snapshot || !snapshot.requests?.length) return;
 
-      const turns = buildTurns(snapshot.requests);
+      let turns;
+      try {
+        turns = buildTurns(snapshot.requests);
+      } catch (err) {
+        console.warn(
+          `[chat-mcp] Failed to parse session ${sessionId} in ${workspaceInfo.name}:`,
+          (err as Error).message,
+        );
+        return;
+      }
 
       const totalChars = turns.reduce((acc, t) => {
         return acc + t.userMessage.length + t.aiResponse.length;
@@ -279,12 +288,18 @@ export async function listSessions(
         }
       }
 
+      const rawTitle =
+        snapshot.customTitle ??
+        snapshot.requests[0]?.message?.text ??
+        undefined;
+      const title =
+        typeof rawTitle === "string"
+          ? rawTitle.slice(0, 60)
+          : (turns[0]?.userMessage?.slice(0, 60) ?? "Untitled");
+
       summaries.push({
         id: snapshot.sessionId ?? sessionId,
-        title:
-          snapshot.customTitle ??
-          snapshot.requests[0]?.message?.text?.slice(0, 60) ??
-          "Untitled",
+        title,
         workspace: workspaceInfo.name,
         workspacePath: workspaceInfo.path,
         creationDate: snapshot.creationDate

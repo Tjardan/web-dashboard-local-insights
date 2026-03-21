@@ -14,7 +14,7 @@ function renderResponseItem(item: RawResponseItem): string | null {
       return (item.value as string | undefined) ?? "";
 
     case "thinking": {
-      const text = (item.value as string | undefined) ?? "";
+      const text = typeof item.value === "string" ? item.value : "";
       if (!text.trim()) return null;
       return `<thinking>\n${text}\n</thinking>`;
     }
@@ -215,7 +215,8 @@ function extractToolCall(item: RawResponseItem): ToolCallInfo {
           )
             continue;
           if (obj["isText"] !== true) continue;
-          const text = obj["value"] as string | undefined;
+          const rawVal = obj["value"];
+          const text = typeof rawVal === "string" ? rawVal : undefined;
           if (text?.trim()) {
             const trimmed = text.trim();
             result =
@@ -238,10 +239,11 @@ function extractToolCall(item: RawResponseItem): ToolCallInfo {
 
 export function buildTurns(requests: RawChatRequest[]): ConversationTurn[] {
   return requests.map((req, i) => {
+    const rawText = req.message?.text;
     const userMessage =
-      req.message?.text?.trim() ??
+      (typeof rawText === "string" ? rawText.trim() : undefined) ??
       req.message?.parts
-        ?.map((p) => p.text ?? "")
+        ?.map((p) => (typeof p.text === "string" ? p.text : ""))
         .join("")
         .trim() ??
       "";

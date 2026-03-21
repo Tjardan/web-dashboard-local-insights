@@ -245,6 +245,9 @@ export const useProjectsStore = defineStore("projects", () => {
     settingsStore.toggleProjectTracking(projectId);
     const isNowTracked = settingsStore.isProjectTracked(projectId);
 
+    // Always refresh project properties (gitRemote etc.) on track/untrack
+    await discoverProjects();
+
     if (!wasTracked && isNowTracked) {
       const project = projects.value.find((p) => p.id === projectId);
       if (!project) return;
