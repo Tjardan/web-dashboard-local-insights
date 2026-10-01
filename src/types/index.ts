@@ -112,6 +112,15 @@ export interface AppSettings {
    * An empty array means no projects are tracked yet.
    */
   trackedProjects?: string[];
+  /**
+   * Every project ID discovery has ever reported, tracked or not.
+   * Needed to tell "never seen before" apart from "deliberately switched off":
+   * trackedProjects alone cannot distinguish the two, so auto-tracking new
+   * projects would otherwise resurrect every project the user untracked.
+   */
+  knownProjects?: string[];
+  /** Track newly discovered projects automatically. Default true. */
+  autoTrackNewProjects?: boolean;
   /** Max width (px) of the main content area. Default 1200. */
   maxContentWidth?: number;
   /** Active UI theme. Default: 'cyberpunk' */

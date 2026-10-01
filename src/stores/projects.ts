@@ -100,7 +100,8 @@ export const useProjectsStore = defineStore("projects", () => {
     loading.value = true;
     try {
       // Phase 1 — show stale-while-revalidate data immediately
-      const cached = readAllCachedEntries();
+      const cached = await readAllCachedEntries();
+      if (loadSeq !== seq) return;
       if (cached.length > 0) {
         entries.value = cached;
       }
@@ -113,14 +114,28 @@ export const useProjectsStore = defineStore("projects", () => {
       // New installs already have trackedProjects: [] from loadSettings() default.
       settingsStore.migrateToOptInTracking(projects.value.map((p) => p.id));
 
-      // Prune localStorage entries for projects that no longer exist,
+      // Track newly discovered projects (unless the user turned that off).
+      // Must run before the tracked-projects filter below so a new project is
+      // fetched in this same cycle instead of only on the next reload.
+      const newlyTracked = settingsStore.registerDiscoveredProjects(
+        projects.value.map((p) => p.id),
+      );
+      if (newlyTracked.length > 0) {
+        console.info(
+          `[DevPulse] Auto-tracking ${newlyTracked.length} new project(s):`,
+          newlyTracked.join(", "),
+        );
+      }
+
+      // Prune cached entries for projects that no longer exist,
       // and remove their stale entries from the live store.
       const knownIds = new Set(projects.value.map((p) => p.id));
       // Keep virtual project IDs for global connectors (e.g. "_teams") from being pruned
       for (const [type, connector] of connectors.value) {
         if (connector.global) knownIds.add(`_${type}`);
       }
-      pruneObsoleteProjects(knownIds);
+      await pruneObsoleteProjects(knownIds);
+      if (loadSeq !== seq) return;
       entries.value = entries.value.filter((e) => knownIds.has(e.projectId));
 
       // Phase 3 — parallel per-project progressive fetch
@@ -138,7 +153,8 @@ export const useProjectsStore = defineStore("projects", () => {
             if (!settingsStore.isSourceEnabled(type)) continue;
             if (loadSeq !== seq) return;
 
-            const cache = readBrowserCache(project.id, type);
+            const cache = await readBrowserCache(project.id, type);
+            if (loadSeq !== seq) return;
             // Sanitize: treat future timestamps and corrupt values as a full fetch
             const since = sanitizeSince(cache?.cachedAt);
 
@@ -154,7 +170,8 @@ export const useProjectsStore = defineStore("projects", () => {
                 const merged = new Map(cache.entries.map((e) => [e.id, e]));
                 for (const e of valid) merged.set(e.id, e);
                 const mergedArr = [...merged.values()];
-                writeBrowserCache(project.id, type, mergedArr);
+                await writeBrowserCache(project.id, type, mergedArr);
+                if (loadSeq !== seq) return;
                 // Splice this project+source slice into the live store
                 entries.value = [
                   ...entries.value.filter(
@@ -164,7 +181,8 @@ export const useProjectsStore = defineStore("projects", () => {
                   ...mergedArr,
                 ];
               } else {
-                writeBrowserCache(project.id, type, valid);
+                await writeBrowserCache(project.id, type, valid);
+                if (loadSeq !== seq) return;
                 entries.value = [...entries.value, ...valid];
               }
             } catch (err) {
@@ -192,7 +210,8 @@ export const useProjectsStore = defineStore("projects", () => {
         if (loadSeq !== seq) return;
 
         const virtualProjectId = `_${type}`;
-        const cache = readBrowserCache(virtualProjectId, type);
+        const cache = await readBrowserCache(virtualProjectId, type);
+        if (loadSeq !== seq) return;
         const since = sanitizeSince(cache?.cachedAt);
         const virtualProject: import("@/types").ProjectConfig = {
           id: virtualProjectId,
@@ -210,7 +229,8 @@ export const useProjectsStore = defineStore("projects", () => {
             const merged = new Map(cache.entries.map((e) => [e.id, e]));
             for (const e of valid) merged.set(e.id, e);
             const mergedArr = [...merged.values()];
-            writeBrowserCache(virtualProjectId, type, mergedArr);
+            await writeBrowserCache(virtualProjectId, type, mergedArr);
+            if (loadSeq !== seq) return;
             entries.value = [
               ...entries.value.filter(
                 (e) =>
@@ -219,7 +239,8 @@ export const useProjectsStore = defineStore("projects", () => {
               ...mergedArr,
             ];
           } else {
-            writeBrowserCache(virtualProjectId, type, valid);
+            await writeBrowserCache(virtualProjectId, type, valid);
+            if (loadSeq !== seq) return;
             entries.value = [...entries.value, ...valid];
           }
         } catch (err) {
@@ -253,9 +274,12 @@ export const useProjectsStore = defineStore("projects", () => {
       if (!project) return;
 
       // Check if any connector already has a cache entry for this project.
-      const hasCachedData = [...connectors.value.keys()].some(
-        (type) => readBrowserCache(projectId, type) !== null,
+      const cacheSlices = await Promise.all(
+        [...connectors.value.keys()].map((type) =>
+          readBrowserCache(projectId, type),
+        ),
       );
+      const hasCachedData = cacheSlices.some((slice) => slice !== null);
 
       if (!hasCachedData) {
         // First time ever tracked — show skeleton while fetching.
@@ -280,7 +304,7 @@ export const useProjectsStore = defineStore("projects", () => {
       try {
         const fresh = await connector.fetch(project); // no `since` → full fetch
         const valid = fresh.filter((e) => connector.validate(e).valid);
-        writeBrowserCache(project.id, type, valid);
+        await writeBrowserCache(project.id, type, valid);
         entries.value = [
           ...entries.value.filter(
             (e) => !(e.projectId === projectId && e.meta.source === type),

@@ -58,6 +58,8 @@ function loadSettings(): AppSettings {
     },
     untrackedProjects: [],
     trackedProjects: [],
+    knownProjects: [],
+    autoTrackNewProjects: true,
     maxContentWidth: 1200,
   };
 }
@@ -160,6 +162,48 @@ export const useSettingsStore = defineStore("settings", () => {
     saveSettings(settings.value);
   }
 
+  /**
+   * Reconcile a discovery result with the known-projects list.
+   *
+   * Returns the project IDs that were newly tracked, so the caller can fetch
+   * them right away.
+   *
+   * First run on an existing install seeds knownProjects with everything that
+   * exists right now and tracks nothing: those projects have been seen before,
+   * and auto-tracking them would undo every deliberate untrack. Only projects
+   * appearing in a later discovery count as new.
+   */
+  function registerDiscoveredProjects(allProjectIds: string[]): string[] {
+    const seeding = settings.value.knownProjects === undefined;
+    const known = new Set(settings.value.knownProjects ?? []);
+    const newIds = allProjectIds.filter((id) => !known.has(id));
+
+    if (newIds.length === 0) return [];
+
+    settings.value.knownProjects = [...known, ...newIds];
+
+    const autoTrack = settings.value.autoTrackNewProjects !== false;
+    if (seeding || !autoTrack) {
+      saveSettings(settings.value);
+      return [];
+    }
+
+    const tracked = settings.value.trackedProjects ?? [];
+    const toTrack = newIds.filter((id) => !tracked.includes(id));
+    settings.value.trackedProjects = [...tracked, ...toTrack];
+    saveSettings(settings.value);
+    return toTrack;
+  }
+
+  const autoTrackNewProjects = computed(
+    () => settings.value.autoTrackNewProjects !== false,
+  );
+
+  function setAutoTrackNewProjects(enabled: boolean) {
+    settings.value.autoTrackNewProjects = enabled;
+    saveSettings(settings.value);
+  }
+
   function updateTeamsConfig(config: TeamsConfig) {
     settings.value.teamsConfig = config;
     saveSettings(settings.value);
@@ -189,6 +233,9 @@ export const useSettingsStore = defineStore("settings", () => {
     toggleProjectTracking,
     isProjectTracked,
     migrateToOptInTracking,
+    registerDiscoveredProjects,
+    autoTrackNewProjects,
+    setAutoTrackNewProjects,
     updateTeamsConfig,
     clearTeamsConfig,
     updateTeamsFilePath,

@@ -489,6 +489,33 @@ function removeFolder(path: string) {
       </p>
 
       <div class="connectors-list">
+        <div class="connector-item neon-card">
+          <div class="connector-item__info">
+            <div>
+              <span class="connector-item__label">Track new projects</span>
+              <span class="connector-item__type">
+                Newly discovered projects are tracked automatically. Switch off
+                to keep them hidden until you enable them yourself.
+              </span>
+            </div>
+          </div>
+
+          <label class="neon-toggle">
+            <input
+              type="checkbox"
+              :checked="settingsStore.autoTrackNewProjects"
+              @change="
+                settingsStore.setAutoTrackNewProjects(
+                  ($event.target as HTMLInputElement).checked,
+                )
+              "
+            />
+            <span class="slider" />
+          </label>
+        </div>
+      </div>
+
+      <div class="connectors-list">
         <div
           v-for="project in [...projectsStore.projects].sort((a, b) =>
             a.name.localeCompare(b.name),
