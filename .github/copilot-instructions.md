@@ -3,8 +3,17 @@
 ## Project Overview
 
 Vue 3 + TypeScript + Vite dashboard that aggregates insights from local development projects:
-commits, VS Code Copilot chats, file changes, and future sources (Teams, Email).
-Pure file-based, local-only — no backend server.
+git commits, VS Code Copilot chats, Microsoft Teams messages, and future sources (Email).
+Local-only — no separate backend service and no cloud storage.
+
+"No backend" does not mean "browser only": filesystem, git and Graph API access run on the
+Node.js side, inside the Vite dev server (`src/server/api-plugin.ts`, mounted via
+`configureServer` on `/api/*`). Consequence: **the app only works under `npm run dev`.**
+`vite build` emits a static bundle without that middleware, so `npm run preview` shows the UI
+with no data.
+
+See `CLAUDE.md` in the repo root for the deeper architecture notes (caching layers, search
+pipeline, AI providers).
 
 ## Tech Stack
 
@@ -21,12 +30,24 @@ Pure file-based, local-only — no backend server.
 ### Connector System
 
 All data sources are implemented as `SourceConnector` instances in `src/connectors/`.
-Connectors are registered via `registerSourceConnector()` and must implement:
+Each connector implements:
 
-- `fetch(project)` — returns `InsightEntry[]`
+- `fetch(project, since?)` — returns `InsightEntry[]`; `since` (ISO-8601) enables incremental sync
 - `validate(entry)` — returns `ValidationResult`
 
-New sources (Teams, Email, etc.) are added by creating a new connector file and registering it.
+Registration happens in **one** place: the loop at the top of `src/App.vue`, which puts every
+connector in both the Pinia store (`projectsStore.registerConnector`) and the global registry
+(`registerSourceConnector`). A connector that is not in that loop is never called.
+
+Connectors marked `global: true` (e.g. `teams`) are not project-scoped. They are called once per
+sync cycle with a synthetic `ProjectConfig`, and their entries use an underscore-prefixed
+projectId (`_teams`). Those virtual IDs bypass the `trackedProjects` filter in
+`projectsStore.filteredEntries`.
+
+Current connectors: `git-commit`, `chat-history`, `teams` (Graph API, OAuth PKCE, needs an Azure
+AD app registration) and `teams-file` (reads a JSON export from a Power Automate flow — no IT
+permissions required). `file-change` still exists as a `SourceType` and in the default settings,
+but has **no connector** — `src/stores/settings.ts` migrates the leftover key away.
 
 ### Data Model
 
@@ -38,18 +59,31 @@ All entries carry `meta.source: SourceType` for filtering and `payload: unknown`
 
 ### Views
 
-| Route                | View             | Purpose                          |
-| -------------------- | ---------------- | -------------------------------- |
-| `/`                  | DashboardView    | Project grid with stats          |
-| `/timeline`          | TimelineView     | Cross-project activity stream    |
-| `/project/:id`       | ProjectView      | Single project detail            |
-| `/project/:id/chats` | ProjectChatsView | Copilot chat sessions            |
-| `/settings`          | SettingsView     | Root folders & source management |
+| Route                   | View              | Purpose                          |
+| ----------------------- | ----------------- | -------------------------------- |
+| `/`                     | DashboardView     | Project grid with stats          |
+| `/timeline`             | TimelineView      | Cross-project activity stream    |
+| `/search`               | SearchView        | Hybrid search + RAG chat         |
+| `/project/:id`          | ProjectView       | Single project detail            |
+| `/project/:id/chats`    | ProjectChatsView  | Copilot chat sessions            |
+| `/settings`             | SettingsView      | Root folders & source management |
+| `/auth/teams/callback`  | TeamsCallbackView | OAuth PKCE redirect target       |
 
-### MCP Integrations
+All routes are lazy-loaded and carry a `meta.transition` name used by the `<Transition>` in
+`App.vue`.
 
-- **vscode-chat-history**: Chat sessions via `mcp_vscode-chat-h_*` tools
-- **GitHub**: Commits and repo info via `mcp_github_*` tools
+### Local API endpoints
+
+The dashboard reads **no MCP tools** — every connector calls the local Vite plugin over `fetch`.
+Endpoints in `src/server/api-plugin.ts`:
+
+`/api/discover-projects`, `/api/git-log`, `/api/chat-sessions`, `/api/chat-session`,
+`/api/copilot-proxy/chat/completions`, `/api/search-ask`, `/api/teams-file`,
+`/api/teams/auth/{status,token,revoke}`, `/api/teams/messages`.
+
+MCP runs in the other direction: `packages/chat-mcp` **is** an MCP server (`bin: devpulse-mcp` →
+`dist/mcp-server.js`, JSON-RPC over stdio) exposing `devpulse_search` and `devpulse_index_status`
+to VS Code Copilot. The dev-server imports the same package as a plain library.
 
 ## Monorepo & Build Rules
 
@@ -86,10 +120,14 @@ For active package development, prefer the **"Dev (watch + vite)"** VS Code task
 
 ### TypeScript
 
-- Target ES2022, strict mode, no `any`
-- Use `unknown` + narrowing over `any`
+- Strict mode, no `any` — use `unknown` + narrowing instead
+- Target: ES2020 for app code (`tsconfig.app.json`), ES2022 for `packages/*` and `vite.config.ts`
+- `noUnusedLocals` and `noUnusedParameters` are on: an unused import or parameter fails the build
 - Interfaces over type aliases for object shapes
 - PascalCase for types/interfaces, camelCase for variables/functions
+
+There is no linter and no test runner. `npm run build` (which runs `vue-tsc -b`) is the only
+automated check — run it after every change.
 
 ### Vue Components
 
@@ -103,6 +141,9 @@ For active package development, prefer the **"Dev (watch + vite)"** VS Code task
 - Dark mode only, cyberpunk/neon aesthetic
 - CSS custom properties in `:root` (see `src/assets/main.css`)
 - Neon accents: cyan (#00f0ff), magenta (#ff00aa), purple (#8b5cf6), green (#39ff14)
+- Two themes, switched via `data-theme` on `<html>` from a `watchEffect` in `App.vue`:
+  `cyberpunk` (default) and `sys-nexus` (overrides later in `main.css`; `examples/sys_nexus/`
+  is the reference mockup). A new token needs a value in both.
 - Use `.neon-card`, `.neon-btn`, `.neon-badge`, `.neon-toggle` utility classes
 - Animated transitions on all page navigations
 - Skeleton loading placeholders with glow animation
@@ -111,14 +152,20 @@ For active package development, prefer the **"Dev (watch + vite)"** VS Code task
 
 ```
 src/
-  assets/       — Global CSS
+  assets/       — Global CSS (both themes)
   components/   — Reusable UI components
   connectors/   — Data source connectors
   router/       — Vue Router config
-  stores/       — Pinia stores
+  search/       — BM25 re-export, vector store, hybrid fusion, AI clients
+  server/       — Node.js only: Vite API plugin, file cache, Teams token storage
+  stores/       — Pinia stores (projects, settings, search)
   types/        — TypeScript interfaces
+  utils/        — Browser cache, git remote parsing, PKCE, timeline grouping
   views/        — Route-level view components
 ```
+
+Nothing in `src/server/` may be imported from browser code, and nothing outside it may use
+`node:` built-ins.
 
 ## Important Patterns
 
@@ -139,10 +186,16 @@ To add a new source:
 
 1. Create `src/connectors/my-source.ts` implementing `SourceConnector`
 2. Export from `src/connectors/index.ts`
-3. Register in store initialization
+3. Add it to the registration loop in `src/App.vue`
 4. Add a `neon-badge--{type}` CSS class with appropriate color
+5. If the source needs filesystem or network access that the browser cannot do, add an
+   `/api/…` endpoint in `src/server/api-plugin.ts` and `fetch` it from the connector
 
 ### Search & BM25 Indexing
+
+The BM25+ implementation lives in **exactly one place**: `packages/search-shared/src/index.ts`.
+Both `src/search/bm25.ts` and `packages/chat-mcp/src/bm25.ts` are re-exports — change the
+tokenizer, the stop words or the scoring there, never in a re-export.
 
 Both the browser-side BM25 index (`src/search/`) and the chat-mcp server-side index
 (`packages/chat-mcp/src/search-tools.ts`) index actual **chat turn content** — not just titles.
@@ -172,3 +225,16 @@ Both the browser-side BM25 index (`src/search/`) and the chat-mcp server-side in
 
 **Cache key**: `/api/chat-sessions` uses server cache key `chat-sessions-v2:{filter}` (TTL 2 min).
 If you change the shape of `indexableText`, bump the cache key version to avoid stale responses.
+
+### Caching
+
+Three independent layers — stale data after a change usually means you invalidated the wrong one:
+
+| Layer         | Where                                  | Invalidate by                        |
+| ------------- | -------------------------------------- | ------------------------------------ |
+| Server files  | `.devpulse-cache/` (`src/server/cache.ts`) | Bumping the version in the cache key |
+| Browser       | localStorage, `devpulse:entries:{project}:{source}` | Clearing the slice; `cachedAt` doubles as the `since` for incremental fetches |
+| Embeddings    | IndexedDB `devpulse-vector-store`      | Content hash changes per document    |
+
+`.devpulse-cache/` also holds the Teams OAuth tokens and Graph delta links
+(`src/server/teams-token.ts`). It is gitignored and must stay that way.
