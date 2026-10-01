@@ -22,7 +22,11 @@
  * Protocol: JSON-RPC 2.0 over stdin/stdout (MCP spec).
  */
 
-import { searchBM25, getIndexStatus } from "./search-tools.js";
+import {
+  searchBM25,
+  getIndexStatus,
+  type SourceSelector,
+} from "./search-tools.js";
 
 // ─── Token estimation ──────────────────────────────────────────────────────────
 
@@ -79,7 +83,7 @@ const TOOLS = [
   {
     name: "devpulse_search",
     description:
-      "USE THIS TOOL to search through VS Code Copilot chat history. BM25+ lexical search — no API key or token required. Returns the top matching chat sessions with title, date, workspace, relevance score and optional full session content. Use this whenever the user asks about past chats, previous bugs, decisions, solutions or anything from chat history. For analysis or summarisation, set includeContent=true so the calling LLM can work directly with session content — no separate AI call needed.",
+      "USE THIS TOOL to search through local AI chat history — both VS Code Copilot and Claude Code sessions. BM25+ lexical search — no API key or token required. Returns the top matching chat sessions with title, date, workspace, source, relevance score and optional full session content. Use this whenever the user asks about past chats, previous bugs, decisions, solutions or anything from chat history. For analysis or summarisation, set includeContent=true so the calling LLM can work directly with session content — no separate AI call needed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -99,6 +103,12 @@ const TOOLS = [
           type: "string",
           description:
             "ISO-8601 date — only include sessions modified after this date (optional)",
+        },
+        source: {
+          type: "string",
+          enum: ["all", "copilot", "claude"],
+          description:
+            "Which chat history to search: 'copilot' for VS Code Copilot, 'claude' for Claude Code, 'all' for both (default). A source with no sessions on this machine is skipped.",
         },
         includeContent: {
           type: "boolean",
@@ -164,6 +174,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
               workspaceFilter: args["workspaceFilter"] as string | undefined,
               topK: args["topK"] as number | undefined,
               since: args["since"] as string | undefined,
+              source: args["source"] as SourceSelector | undefined,
               includeContent: args["includeContent"] as boolean | undefined,
               contentMaxChars: args["contentMaxChars"] as number | undefined,
             });

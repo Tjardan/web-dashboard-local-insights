@@ -3,13 +3,18 @@ import { existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import type {
-  RawSessionSnapshot,
-  SessionSummary,
-  WorkspaceInfo,
+  ListSessionsOptions,
   ParsedSession,
   RawChatRequest,
+  RawSessionSnapshot,
+  ReadSessionOptions,
+  SessionProvider,
+  SessionSummary,
+  WorkspaceInfo,
 } from "./types.js";
 import { buildTurns, buildIndexableText } from "./formatter.js";
+
+export type { ListSessionsOptions, ReadSessionOptions };
 
 // ─── Platform-aware storage root ────────────────────────────────────────────
 
@@ -258,17 +263,6 @@ async function discoverSessionFiles(
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export interface ListSessionsOptions {
-  workspaceFilter?: string;
-  since?: string;
-  until?: string;
-  sort?: "newest" | "oldest";
-  limit?: number;
-  offset?: number;
-  /** When true, populate SessionSummary.indexableText with stripped turn content for BM25 indexing. */
-  includeIndexableText?: boolean;
-}
-
 export async function listSessions(
   opts: ListSessionsOptions = {},
 ): Promise<SessionSummary[]> {
@@ -316,6 +310,7 @@ export async function listSessions(
 
       summaries.push({
         id: snapshot.sessionId ?? sessionId,
+        source: "copilot",
         title,
         workspace: workspaceInfo.name,
         workspacePath: workspaceInfo.path,
@@ -353,15 +348,6 @@ export async function listSessions(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
-export interface ReadSessionOptions {
-  fromTurn?: number;
-  toTurn?: number;
-  firstTurns?: number;
-  lastTurns?: number;
-  page?: number;
-  pageSize?: number;
-}
 
 export async function readSession(
   sessionId: string,
@@ -413,6 +399,7 @@ export async function readSession(
 
   return {
     id: snapshot.sessionId ?? sessionId,
+    source: "copilot",
     title:
       snapshot.customTitle ?? turns[0]?.userMessage.slice(0, 60) ?? "Untitled",
     workspace: workspaceInfo.name,
@@ -425,3 +412,24 @@ export async function readSession(
     turns,
   };
 }
+
+// ─── Provider ────────────────────────────────────────────────────────────────
+
+/** VS Code Copilot as a SessionProvider — wraps the functions above. */
+export const copilotProvider: SessionProvider = {
+  source: "copilot",
+  label: "Copilot Chats",
+
+  async isAvailable(): Promise<boolean> {
+    try {
+      await readdir(STORAGE_ROOT);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  listSessions: (opts: ListSessionsOptions = {}) => listSessions(opts),
+  readSession: (id: string, opts: ReadSessionOptions = {}) =>
+    readSession(id, opts),
+};

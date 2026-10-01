@@ -25,13 +25,19 @@
  */
 
 import { BM25Index, type BM25Document } from "./bm25.js";
-import { listSessions } from "./storage.js";
+import { PROVIDERS, resolveProviders } from "./providers.js";
 import { extractSnippet } from "./formatter.js";
+import type { ChatSource } from "./types.js";
 
-// ─── In-memory index (per workspace-filter, rebuilt on TTL expiry) ────────────
+/** Which chat sources to search. "all" covers every source present on this machine. */
+export type SourceSelector = ChatSource | "all";
+
+// ─── In-memory index (per source+workspace filter, rebuilt on TTL expiry) ────
 
 interface IndexedEntry {
+  /** Source-local session ID, as the provider's readSession() expects it */
   id: string;
+  source: ChatSource;
   workspacePath: string;
   workspaceName: string;
   title: string;
@@ -49,29 +55,48 @@ interface IndexCache {
 }
 
 /**
- * Separate index cache per workspace filter key.
- * Key "" = no filter (all workspaces). Any other string = filtered workspace.
- * This ensures a workspace-filtered search never reuses a global (unfiltered) index.
+ * Session IDs are only unique within a source, so the BM25 document key
+ * combines the two. Without this a Claude and a Copilot session that happened
+ * to share an ID would silently overwrite each other in the index.
+ */
+function docId(e: { source: ChatSource; id: string }): string {
+  return `${e.source}:${e.id}`;
+}
+
+/**
+ * Separate index cache per source + workspace filter.
+ * Key "<source>|<filter>"; an empty filter means all workspaces. This keeps a
+ * filtered search from reusing an unfiltered index, and a single-source search
+ * from reusing a combined one.
  */
 const indexCaches = new Map<string, IndexCache>();
 const INDEX_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-async function ensureIndex(workspaceFilter?: string): Promise<IndexCache> {
-  const key = workspaceFilter?.trim().toLowerCase() ?? "";
+async function ensureIndex(
+  workspaceFilter?: string,
+  source: SourceSelector = "all",
+): Promise<IndexCache> {
+  const key = `${source}|${workspaceFilter?.trim().toLowerCase() ?? ""}`;
   const now = new Date();
   const cached = indexCaches.get(key);
   if (cached && now.getTime() - cached.indexedAt.getTime() < INDEX_TTL_MS) {
     return cached;
   }
 
-  const sessions = await listSessions({
-    workspaceFilter,
-    sort: "newest",
-    includeIndexableText: true,
-  });
+  const providers = await resolveProviders(source);
+  const perProvider = await Promise.all(
+    providers.map((p) =>
+      p.listSessions({
+        workspaceFilter,
+        sort: "newest",
+        includeIndexableText: true,
+      }),
+    ),
+  );
 
-  const entries: IndexedEntry[] = sessions.map((s) => ({
+  const entries: IndexedEntry[] = perProvider.flat().map((s) => ({
     id: s.id,
+    source: s.source,
     workspacePath: s.workspacePath,
     workspaceName: s.workspace,
     title: s.title,
@@ -81,8 +106,11 @@ async function ensureIndex(workspaceFilter?: string): Promise<IndexCache> {
     text: s.indexableText ?? s.title,
   }));
 
+  // Merging two providers loses the per-provider ordering, so sort again.
+  entries.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+
   const docs: BM25Document[] = entries.map((e) => ({
-    id: e.id,
+    id: docId(e),
     fields: [
       { text: e.title, weight: 3 },
       { text: e.workspaceName, weight: 2 },
@@ -105,6 +133,8 @@ export interface SearchBM25Params {
   workspaceFilter?: string;
   topK?: number;
   since?: string;
+  /** Which chat source to search. Default "all". */
+  source?: SourceSelector;
   /** When true, include the session's indexable text (all turns, thinking and tool calls stripped) in each result */
   includeContent?: boolean;
   /** Max chars of content to include per session (default 8000) */
@@ -112,7 +142,9 @@ export interface SearchBM25Params {
 }
 
 export interface SearchBM25Result {
+  /** Session ID within its source — pass together with `source` to read it back */
   id: string;
+  source: ChatSource;
   score: number;
   title: string;
   workspace: string;
@@ -128,7 +160,7 @@ export interface SearchBM25Result {
 export async function searchBM25(
   params: SearchBM25Params,
 ): Promise<SearchBM25Result[]> {
-  const cache = await ensureIndex(params.workspaceFilter);
+  const cache = await ensureIndex(params.workspaceFilter, params.source);
 
   const topK = params.topK ?? 6;
   const contentMaxChars = params.contentMaxChars ?? 8000;
@@ -144,7 +176,7 @@ export async function searchBM25(
   for (const r of results) {
     if (enriched.length >= topK) break;
 
-    const entry = cache.entries.find((e) => e.id === r.id);
+    const entry = cache.entries.find((e) => docId(e) === r.id);
     if (!entry) continue;
 
     // Optional date filter
@@ -152,6 +184,7 @@ export async function searchBM25(
 
     enriched.push({
       id: entry.id,
+      source: entry.source,
       score: r.score,
       title: entry.title,
       workspace: entry.workspaceName,
@@ -176,7 +209,7 @@ export async function searchBM25(
 // ─── Tool: devpulse_index_status ─────────────────────────────────────────────
 
 export interface IndexStatusResult {
-  /** Number of indexed chat sessions */
+  /** Number of indexed chat sessions across all sources */
   docCount: number;
   /** Number of distinct workspaces those sessions came from */
   workspaceCount: number;
@@ -184,6 +217,13 @@ export interface IndexStatusResult {
   indexedAt: string;
   /** lastModified of the most recently touched session on disk (ISO-8601), or null when empty */
   newestSessionAt: string | null;
+  /** Per-source breakdown; a source with no readable sessions is absent */
+  sources: Array<{
+    source: ChatSource;
+    label: string;
+    docCount: number;
+    newestSessionAt: string | null;
+  }>;
 }
 
 /**
@@ -201,13 +241,24 @@ export interface IndexStatusResult {
 export async function getIndexStatus(): Promise<IndexStatusResult> {
   const cache = await ensureIndex();
 
-  // entries are sorted newest-first by listSessions({ sort: "newest" })
+  // entries are sorted newest-first in ensureIndex()
   const newestSessionAt = cache.entries[0]?.lastModified ?? null;
+
+  const sources = PROVIDERS.map((p) => {
+    const own = cache.entries.filter((e) => e.source === p.source);
+    return {
+      source: p.source,
+      label: p.label,
+      docCount: own.length,
+      newestSessionAt: own[0]?.lastModified ?? null,
+    };
+  }).filter((s) => s.docCount > 0);
 
   return {
     docCount: cache.bm25.size,
     workspaceCount: new Set(cache.entries.map((e) => e.workspacePath)).size,
     indexedAt: cache.indexedAt.toISOString(),
     newestSessionAt,
+    sources,
   };
 }
