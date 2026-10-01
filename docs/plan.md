@@ -130,13 +130,32 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 - [x] Hybrid search: BM25 + vector embeddings (GitHub Models)
 - [x] RAG Ask-functie met tijdvenster context (commits + volledige chatsessies)
 - [x] **Chat inhoud volledig geïndexeerd in BM25** — user prompts + AI antwoorden (strip `<thinking>` en tool calls)
-  - `buildIndexableText()` in `packages/chat-mcp/src/formatter.ts`
-  - Recap-delta strategie: detecteer laatste samenvatting-beurt, indexeer alleen die + latere beurten
+  - `buildIndexableText()` in `packages/chat-mcp/src/formatter.ts` indexeert **alle** beurten
+  - Recap-delta zit niet in de index maar in `buildLLMContext()` — die snijdt af bij de laatste `/compact` om de LLM-context klein te houden (commit 7e0fb5e)
   - Beide indices bijgewerkt: browser-side (`src/search/index-builder.ts`) én chat-mcp server-side (`packages/chat-mcp/src/search-tools.ts`)
   - Content gewicht ×1 (lager dan title ×3) voor correcte ranking
+- [x] `devpulse_index_status` rapporteert de data in plaats van de cacheleeftijd; `since` filtert vóór de topK-slice
+- [x] Nieuwe projecten lopen automatisch mee: workspace-cache in `storage.ts` heeft een TTL
+
+### Fase 3c — SessionProvider (voorwaarde voor een tweede chatbron)
+
+`packages/chat-mcp` gaat uit van één opslagformaat: `STORAGE_ROOT` is een enkele const en
+`ensureIndex()` roept `listSessions()` hard aan. Zolang dat zo is, wordt elke extra bron een tweede
+hardcoded pad. Deze fase haalt die aanname eruit.
+
+- [ ] `SessionProvider`-interface met `listSessions()` / `readSession()`; VS Code Copilot wordt de eerste implementatie
+- [ ] Bron meenemen in de cachesleutel van `ensureIndex()`; `source`-parameter op `devpulse_search` (`copilot` | `claude` | `all`) en een `source`-veld op elk resultaat
+- [ ] Sessie-ID's prefixen (`copilot:<id>` / `claude:<uuid>`) zodat twee bronnen in één BM25-index geen ID's delen
+- [ ] **Opstarttijd: index persistent cachen op schijf.** De eerste tool-call in een vers proces kost nu ~22 s omdat 812 JSONL-sessies volledig geparsed worden; daarna is het milliseconden. Een cache naast `.devpulse-cache/`, geïnvalideerd op bestands-mtime, haalt die kosten weg — en met twee bronnen verdubbelt dat probleem anders. Hoort hier thuis omdat de cachesleutel de bron moet bevatten en de provider-interface de natuurlijke plek is om het achter te zetten.
 
 ### Fase 4 — Uitbreiding Bronnen
 
+- [ ] **Claude Code-chats als tweede chatbron** (vereist Fase 3c)
+  - Opslag: `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` — platte append-only JSONL, géén snapshot-met-patches zoals VS Code. Projectpad uit het `cwd`-veld lezen, niet uit de mapnaam (die is niet eenduidig terug te rekenen bij worktrees)
+  - Indexeren: alleen `user:text` en `assistant:text`. `tool_result` bevat volledige bestandsinhoud en shell-output — meenemen vult de 100k-cap met ruis en sloopt de BM25-ranking. `thinking` en `tool_use` eruit, `isSidechain: true` overslaan
+  - Titel is gratis: `ai-title`- en `custom-title`-records
+  - Let op `src/search/index-builder.ts`: beide takken matchen op `meta.source === "chat"`, dus een `claude-chat`-entry valt stil terug op de generieke tak en verliest daar `indexableText`
+  - Worktree-paden (`…-worktrees-…`) horen bij projecten die `discover-projects` niet vindt — dat scant alleen directe subdirectories van de rootfolders
 - [ ] Teams communicatie connector (voorbereid)
 - [ ] Email communicatie connector (voorbereid)
 - [ ] Output generatie (rapporten, samenvattingen)
