@@ -28,6 +28,12 @@ import type {
 } from "./types.js";
 import { buildClaudeTurns, claudeSessionTitle } from "./claude-formatter.js";
 import { buildIndexableText } from "./formatter.js";
+import {
+  pruneSessionCache,
+  withSessionCache,
+  withoutIndexableText,
+  type FileStamp,
+} from "./session-cache.js";
 
 /**
  * Claude Code honours CLAUDE_CONFIG_DIR for a relocated config directory;
@@ -48,6 +54,8 @@ interface ClaudeSessionFile {
   /** Directory name under projects/ — the encoded cwd */
   dirName: string;
   mtime: Date;
+  /** mtime + size, the key the persistent parse cache is validated against */
+  stamp: FileStamp;
 }
 
 async function discoverSessionFiles(): Promise<ClaudeSessionFile[]> {
@@ -80,6 +88,7 @@ async function discoverSessionFiles(): Promise<ClaudeSessionFile[]> {
               sessionId: file.replace(/\.jsonl$/, ""),
               dirName,
               mtime: info.mtime,
+              stamp: { mtimeMs: info.mtimeMs, size: info.size },
             });
           } catch {
             // skip unreadable files
@@ -202,56 +211,79 @@ export const claudeProvider: SessionProvider = {
     const summaries: SessionSummary[] = [];
 
     await Promise.all(
-      files.map(async ({ filePath, sessionId, dirName, mtime }) => {
-        const parsed = await readClaudeSessionFile(filePath);
-        if (!parsed) return;
+      files.map(async ({ filePath, sessionId, dirName, mtime, stamp }) => {
+        const summary = await withSessionCache(
+          "claude",
+          filePath,
+          stamp,
+          async () => {
+            const parsed = await readClaudeSessionFile(filePath);
+            if (!parsed) return undefined;
 
-        const workspacePath = parsed.cwd;
-        const workspace = workspaceNameFor(workspacePath, dirName);
-        if (!matchesWorkspace(opts.workspaceFilter, workspace, workspacePath)) {
-          return;
-        }
+            const workspacePath = parsed.cwd;
+            const workspace = workspaceNameFor(workspacePath, dirName);
 
-        let turns;
-        try {
-          turns = buildClaudeTurns(parsed.records);
-        } catch (err) {
-          console.warn(
-            `[chat-mcp] Failed to parse Claude session ${sessionId} in ${workspace}:`,
-            (err as Error).message,
-          );
-          return;
-        }
-        if (turns.length === 0) return;
+            let turns;
+            try {
+              turns = buildClaudeTurns(parsed.records);
+            } catch (err) {
+              console.warn(
+                `[chat-mcp] Failed to parse Claude session ${sessionId} in ${workspace}:`,
+                (err as Error).message,
+              );
+              return undefined;
+            }
+            if (turns.length === 0) return undefined;
 
-        const totalChars = turns.reduce(
-          (acc, t) => acc + t.userMessage.length + t.aiResponse.length,
-          0,
+            const totalChars = turns.reduce(
+              (acc, t) => acc + t.userMessage.length + t.aiResponse.length,
+              0,
+            );
+
+            // Always built, regardless of opts — see the note in storage.ts.
+            let indexableText: string | undefined;
+            try {
+              indexableText = buildIndexableText(turns);
+            } catch {
+              // One bad session must not break the index
+            }
+
+            return {
+              id: sessionId,
+              source: "claude",
+              title: claudeSessionTitle(parsed.records, turns),
+              workspace,
+              workspacePath,
+              creationDate: parsed.creationDate,
+              lastModified: mtime.toISOString(),
+              messageCount: turns.length,
+              totalChars,
+              indexableText,
+            } satisfies SessionSummary;
+          },
         );
+        if (!summary) return;
 
-        let indexableText: string | undefined;
-        if (opts.includeIndexableText) {
-          try {
-            indexableText = buildIndexableText(turns);
-          } catch {
-            // One bad session must not break the index
-          }
+        // Filtering happens here rather than before the parse: the project path
+        // lives inside the file, so it is only known once the session has been
+        // read — and the cache entry has to be written either way.
+        if (
+          !matchesWorkspace(
+            opts.workspaceFilter,
+            summary.workspace,
+            summary.workspacePath,
+          )
+        ) {
+          return;
         }
 
-        summaries.push({
-          id: sessionId,
-          source: "claude",
-          title: claudeSessionTitle(parsed.records, turns),
-          workspace,
-          workspacePath,
-          creationDate: parsed.creationDate,
-          lastModified: mtime.toISOString(),
-          messageCount: turns.length,
-          totalChars,
-          indexableText,
-        });
+        summaries.push(
+          opts.includeIndexableText ? summary : withoutIndexableText(summary),
+        );
       }),
     );
+
+    if (!opts.workspaceFilter) void pruneSessionCache("claude");
 
     const since = opts.since ? new Date(opts.since).getTime() : undefined;
     const until = opts.until ? new Date(opts.until).getTime() : undefined;

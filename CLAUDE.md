@@ -71,7 +71,7 @@ Claude-entry-ID's dragen een `claude:`-prefix zodat ze nooit botsen met een Copi
 dezelfde index; `meta.extra.sessionId` houdt de kale ID vast en `chatSessionUrl()` zet dat weer om
 naar `/api/chat-session?id=…&source=…`.
 
-### Caching — drie lagen, allemaal apart te invalideren
+### Caching — vier lagen, allemaal apart te invalideren
 
 1. **Server** — [src/server/cache.ts](src/server/cache.ts) schrijft JSON naar `.devpulse-cache/`,
    bestandsnaam is een SHA-256 van de cachesleutel. TTL wordt per endpoint meegegeven
@@ -90,6 +90,10 @@ naar `/api/chat-session?id=…&source=…`.
 3. **Vector-embeddings** — IndexedDB (`devpulse-vector-store`), zie
    [src/search/vector-store.ts](src/search/vector-store.ts). Alleen documenten met een gewijzigde
    contenthash worden opnieuw ge-embed.
+4. **Sessie-parsecache** — [packages/chat-mcp/src/session-cache.ts](packages/chat-mcp/src/session-cache.ts),
+   per sessiebestand op schijf in een gebruikersmap, geïnvalideerd op mtime + grootte. Deze laag
+   staat onder de andere drie en wordt gedeeld door de MCP-server én de Vite-server; uitgewerkt
+   onder *Vierde cachelaag* verderop.
 
 `.devpulse-cache/` bevat ook de Teams-OAuth-tokens en Graph delta-links
 ([src/server/teams-token.ts](src/server/teams-token.ts)) — de map staat in `.gitignore` en hoort
@@ -161,13 +165,32 @@ de Vite-kant volkomen ongevaarlijk is. Log in deze package daarom uitsluitend me
 De index van de MCP-server is **lui en per proces**: `ensureIndex()` bouwt hem bij de eerste
 tool-call en ververst hem na 5 minuten; de workspace-lijst eronder heeft een eigen TTL van 1 minuut,
 zodat een workspace die ná het starten van de server is aangemaakt alsnog meekomt. De eerste call in
-een vers proces kost daardoor ~20 s (862 sessies parsen), daarna is het milliseconden. Vrijwel al die
-tijd gaat naar de Copilot-kant: 812 sessies in ~19 s, tegen 50 Claude-sessies in 0,8 s — het
-replayen van de snapshot-plus-patches is duur. Persistent cachen staat op de rol in
-[docs/plan.md](docs/plan.md) (fase 3c).
+een vers proces kost ~0,75 s voor 864 sessies, daarna is het milliseconden.
 
 De `source`-parameter zit óók in de cachesleutel van `ensureIndex()`, zodat een zoekactie met één
 bron nooit een gecombineerde index hergebruikt.
+
+### Vierde cachelaag: de sessie-parsecache
+
+Die 0,75 s was 20,9 s zonder [session-cache.ts](packages/chat-mcp/src/session-cache.ts). Het dure
+werk zit niet in het lezen maar in het parsen: een VS Code-sessiebestand is een snapshot plus een
+stroom patches die je per sessie moet replayen (812 sessies in ~19 s, tegen 52 Claude-sessies in
+0,8 s). Dat hangt alleen van de bytes op schijf af, dus het hoeft nooit twee keer.
+
+- De cache-eenheid is **één sessiebestand**, gestempeld met mtime + grootte — niet de hele index,
+  want die vervalt bij elk nieuw chatbericht volledig.
+- Hij staat in een **gebruikersmap** (`%LOCALAPPDATA%\devpulse\sessions`), niet in
+  `.devpulse-cache/`. De MCP-server is op user-scope geregistreerd en erft de cwd van de host, dus
+  een cwd-relatief pad zou een kopie in elke projectmap achterlaten. `DEVPULSE_CACHE_DIR`
+  overschrijft de locatie; `DEVPULSE_SESSION_CACHE=0` zet de cache uit als je stale data vermoedt.
+- `parse()` bouwt **altijd** de `indexableText`, ook als de aanroeper die niet vroeg: de cache is
+  gedeeld, en een aanroeper die hem oversloeg zou hem voor de index vergiftigen. `withoutIndexableText()`
+  strijkt dat glad bij teruggave.
+- **Verander je `SessionSummary` of een formatter, bump dan `CACHE_VERSION`** — anders blijft elke
+  sessie die niet toevallig opnieuw wordt aangeraakt de oude tekst serveren. Dit is dezelfde val als
+  de versie in de `chat-sessions-v3`-sleutel, maar met een veel langere houdbaarheid.
+- Entries met `summary: null` zijn bewust: een leeg of kapot logbestand wordt anders elke run
+  opnieuw geparsed. Daarom staan er meer cachebestanden dan sessies.
 
 ## Chat-indexering
 

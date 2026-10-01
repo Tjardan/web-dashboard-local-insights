@@ -146,7 +146,12 @@ hardcoded pad. Deze fase haalt die aanname eruit.
 - [x] `SessionProvider`-interface met `listSessions()` / `readSession()`; `copilotProvider` en `claudeProvider` in `providers.ts`
 - [x] Bron meenemen in de cachesleutel van `ensureIndex()`; `source`-parameter op `devpulse_search` (`copilot` | `claude` | `all`) en een `source`-veld op elk resultaat
 - [x] Documentsleutel `${source}:${id}` zodat twee bronnen in één BM25-index geen ID's delen
-- [ ] **Opstarttijd: index persistent cachen op schijf.** De eerste tool-call in een vers proces kost ~19 s. Vrijwel alles daarvan is de Copilot-kant: 812 sessies in ~19 s tegenover 50 Claude-sessies in 0,8 s, want de snapshot-plus-patches moeten per sessie gereplayed worden. Een cache naast `.devpulse-cache/`, geïnvalideerd op bestands-mtime, haalt die kosten weg. De provider-interface is de natuurlijke plek om het achter te zetten, en de cachesleutel bevat de bron al.
+- [x] **Opstarttijd: index persistent cachen op schijf** — [`session-cache.ts`](../packages/chat-mcp/src/session-cache.ts). Gemeten: **20,9 s → 0,75 s** voor 864 sessies in een vers proces
+  - De cache-eenheid is één **sessiebestand**, gestempeld met mtime + grootte. Een gewijzigde chat wordt opnieuw geparsed, de andere 800 worden als kale JSON teruggelezen. Een cache van de héle index zou bij elk nieuw chatbericht in zijn geheel vervallen
+  - Locatie is een **gebruikersmap** (`%LOCALAPPDATA%\devpulse\sessions`, `~/.cache/devpulse/sessions`), niet `.devpulse-cache/` in de repo: de MCP-server staat op user-scope geregistreerd en erft de cwd van de host, dus een cwd-relatief pad strooit kopieën door elke projectmap. `DEVPULSE_CACHE_DIR` overschrijft, `DEVPULSE_SESSION_CACHE=0` zet hem uit
+  - `parse()` bouwt **altijd** de `indexableText`, ook als de aanroeper die niet vroeg — de cache is gedeeld, en een aanroeper die hem oversloeg zou hem voor de index vergiftigen. Strippen gebeurt bij teruggave
+  - Entries dragen een `CACHE_VERSION`; die moet omhoog zodra `SessionSummary` of een formatter andere tekst gaat opleveren
+  - De workspace-naam en het pad komen bij Copilot uit `workspace.json` en worden ná de cache overlayd: die kunnen veranderen zonder dat de mtime van de sessie meebeweegt
 
 ### Fase 4 — Uitbreiding Bronnen
 

@@ -13,6 +13,12 @@ import type {
   WorkspaceInfo,
 } from "./types.js";
 import { buildTurns, buildIndexableText } from "./formatter.js";
+import {
+  pruneSessionCache,
+  withSessionCache,
+  withoutIndexableText,
+  type FileStamp,
+} from "./session-cache.js";
 
 export type { ListSessionsOptions, ReadSessionOptions };
 
@@ -212,6 +218,8 @@ interface SessionFile {
   sessionId: string;
   workspaceInfo: WorkspaceInfo;
   mtime: Date;
+  /** mtime + size, the key the persistent parse cache is validated against */
+  stamp: FileStamp;
 }
 
 async function discoverSessionFiles(
@@ -249,6 +257,7 @@ async function discoverSessionFiles(
               sessionId: file.replace(/\.jsonl$/, ""),
               workspaceInfo: ws,
               mtime: info.mtime,
+              stamp: { mtimeMs: info.mtimeMs, size: info.size },
             });
           } catch {
             // skip unreadable files
@@ -271,59 +280,83 @@ export async function listSessions(
   const summaries: SessionSummary[] = [];
 
   await Promise.all(
-    files.map(async ({ filePath, sessionId, workspaceInfo, mtime }) => {
-      const snapshot = await readFullSnapshot(filePath);
-      if (!snapshot || !snapshot.requests?.length) return;
+    files.map(async ({ filePath, sessionId, workspaceInfo, mtime, stamp }) => {
+      const summary = await withSessionCache(
+        "copilot",
+        filePath,
+        stamp,
+        async () => {
+          const snapshot = await readFullSnapshot(filePath);
+          if (!snapshot || !snapshot.requests?.length) return undefined;
 
-      let turns;
-      try {
-        turns = buildTurns(snapshot.requests);
-      } catch (err) {
-        console.warn(
-          `[chat-mcp] Failed to parse session ${sessionId} in ${workspaceInfo.name}:`,
-          (err as Error).message,
-        );
-        return;
-      }
+          let turns;
+          try {
+            turns = buildTurns(snapshot.requests);
+          } catch (err) {
+            console.warn(
+              `[chat-mcp] Failed to parse session ${sessionId} in ${workspaceInfo.name}:`,
+              (err as Error).message,
+            );
+            return undefined;
+          }
 
-      const totalChars = turns.reduce((acc, t) => {
-        return acc + t.userMessage.length + t.aiResponse.length;
-      }, 0);
+          const totalChars = turns.reduce((acc, t) => {
+            return acc + t.userMessage.length + t.aiResponse.length;
+          }, 0);
 
-      let indexableText: string | undefined;
-      if (opts.includeIndexableText) {
-        try {
-          indexableText = buildIndexableText(turns);
-        } catch {
-          // Silently skip — one bad session won't break the index
-        }
-      }
+          // Always built, regardless of opts: the cache entry is shared with
+          // callers that do need the text, and is stripped again below.
+          let indexableText: string | undefined;
+          try {
+            indexableText = buildIndexableText(turns);
+          } catch {
+            // Silently skip — one bad session won't break the index
+          }
 
-      const rawTitle =
-        snapshot.customTitle ??
-        snapshot.requests[0]?.message?.text ??
-        undefined;
-      const title =
-        typeof rawTitle === "string"
-          ? rawTitle.slice(0, 60)
-          : (turns[0]?.userMessage?.slice(0, 60) ?? "Untitled");
+          const rawTitle =
+            snapshot.customTitle ??
+            snapshot.requests[0]?.message?.text ??
+            undefined;
+          const title =
+            typeof rawTitle === "string"
+              ? rawTitle.slice(0, 60)
+              : (turns[0]?.userMessage?.slice(0, 60) ?? "Untitled");
 
-      summaries.push({
-        id: snapshot.sessionId ?? sessionId,
-        source: "copilot",
-        title,
+          return {
+            id: snapshot.sessionId ?? sessionId,
+            source: "copilot",
+            title,
+            workspace: workspaceInfo.name,
+            workspacePath: workspaceInfo.path,
+            creationDate: snapshot.creationDate
+              ? new Date(snapshot.creationDate).toISOString()
+              : "",
+            lastModified: mtime.toISOString(),
+            messageCount: snapshot.requests.length,
+            totalChars,
+            indexableText,
+          };
+        },
+      );
+      if (!summary) return;
+
+      // The workspace name and path come from workspace.json, not from the
+      // session file, so they can change while the session's mtime does not.
+      // Overlaying them keeps a renamed or moved folder out of the stale set.
+      const resolved: SessionSummary = {
+        ...summary,
         workspace: workspaceInfo.name,
         workspacePath: workspaceInfo.path,
-        creationDate: snapshot.creationDate
-          ? new Date(snapshot.creationDate).toISOString()
-          : "",
-        lastModified: mtime.toISOString(),
-        messageCount: snapshot.requests.length,
-        totalChars,
-        indexableText,
-      });
+      };
+      summaries.push(
+        opts.includeIndexableText ? resolved : withoutIndexableText(resolved),
+      );
     }),
   );
+
+  // Every session of this source was just visited, so anything left in the
+  // cache belongs to a chat that has since been deleted.
+  if (!opts.workspaceFilter) void pruneSessionCache("copilot");
 
   const since = opts.since ? new Date(opts.since).getTime() : undefined;
   const until = opts.until ? new Date(opts.until).getTime() : undefined;
