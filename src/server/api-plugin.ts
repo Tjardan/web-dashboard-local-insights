@@ -36,6 +36,22 @@ function exec(cmd: string, args: string[], cwd: string): Promise<string> {
   });
 }
 
+/**
+ * True when `git log` failed only because the repository has no commits yet.
+ *
+ * A freshly initialised repo is a perfectly normal state, and since projects
+ * are discovered by looking for a .git directory it does get picked up like
+ * any other. Without this check the endpoint answers 500 and the project card
+ * shows an error instead of simply being empty.
+ */
+function isEmptyRepoError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("does not have any commits yet") ||
+    msg.includes("bad default revision 'HEAD'")
+  );
+}
+
 // ── Microsoft Teams / Graph API helpers ──────────────────────────────────────
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
@@ -443,6 +459,8 @@ export function devPulseApiPlugin(): Plugin {
               cacheWrite(ck, commits);
               return sendJson(res, commits);
             } catch (err) {
+              // A repo without commits has no log — that is empty, not broken.
+              if (isEmptyRepoError(err)) return sendJson(res, []);
               return sendError(
                 res,
                 `git log failed: ${(err as Error).message}`,
