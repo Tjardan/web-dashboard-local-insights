@@ -153,6 +153,22 @@ hardcoded pad. Deze fase haalt die aanname eruit.
   - Entries dragen een `CACHE_VERSION`; die moet omhoog zodra `SessionSummary` of een formatter andere tekst gaat opleveren
   - De workspace-naam en het pad komen bij Copilot uit `workspace.json` en worden ná de cache overlayd: die kunnen veranderen zonder dat de mtime van de sessie meebeweegt
 
+### Fase 3d — Testdekking
+
+Tot nu toe was `vue-tsc -b` de enige geautomatiseerde verificatie, en die vangt geen van de bugs
+die hier daadwerkelijk zijn gevonden: een `since`-filter dat ná de topK-slice werkte, een
+workspace-cache die nooit verviel, een padvergelijking die `\` en `/` door elkaar haalde. Het zijn
+stuk voor stuk gedragsfouten in pure functies over data die je met de hand niet reproduceert.
+
+- [x] **vitest opgezet** — [vitest.config.ts](../vitest.config.ts), `npm test` / `npm run test:watch`. Tests als `*.test.ts` naast de code, environment `node`, draaiend tegen `src/` van de packages zodat er niet eerst gebouwd hoeft te worden. 82 tests in ~0,8 s
+- [x] BM25: tokenizer (camelCase-splitsing, stopwoorden), ranking-volgorde, veldgewichten, IDF-voorkeur voor het zeldzame woord, `add`/`remove`/`buildFromDocuments`
+- [x] `readFullSnapshot`: het replayen van snapshot-plus-patches — responses die vervángen in plaats van aanvullen, een patch op een request uit een latere patch, `customTitle`, het `result`-blok waar `/compact` in landt, een half weggeschreven laatste regel
+- [x] `buildClaudeTurns`: wat er níét in de index hoort (`tool_result`, `isSidechain`, de negen harness-tags), het vouwen van meerdere assistant-records in één beurt, en `claudeSessionTitle`
+- [x] `buildIndexableText` vs. `buildLLMContext`: de index neemt álles, recap-delta geldt alleen voor de LLM-context. Dit onderscheid is eerder verkeerd gedocumenteerd geweest
+- [x] De sessie-parsecache: invalidatie op mtime én grootte, `CACHE_VERSION`, een kapot weggeschreven entry, het onthouden van een onbruikbaar bestand, en de prune
+- [x] `chatSessionUrl`: het strippen van de `claude:`-prefix — precies de bug die drie views stil Claude-sessies liet laten vallen
+- [ ] Connectors, stores en de Vite API-plugin. Die hebben echte opslag of een DOM nodig; verificatie loopt daar nog via de browser
+
 ### Fase 4 — Uitbreiding Bronnen
 
 - [x] **Claude Code-chats als tweede chatbron** — `claudeProvider` in de MCP, `claude-chat`-connector in het dashboard, oranje badge, uitklapbaar in de timeline

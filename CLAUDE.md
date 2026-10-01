@@ -15,12 +15,32 @@ npm run dev              # build:packages + vite dev op poort 5173 (strictPort, 
 npm run build            # build:packages + vue-tsc -b + vite build  — dit is de typecheck
 npm run build:packages   # bouwt search-shared en chat-mcp naar dist/
 npm run preview          # serveert dist/ (let op: zonder API-plugin, zie hieronder)
+npm test                 # vitest run — de parsers, de ranking en de caches
+npm run test:watch       # vitest in watch-modus
 ```
 
-Er is **geen testrunner en geen linter** geconfigureerd. `npm run build` (via `vue-tsc -b`) is de
-enige geautomatiseerde verificatie — draai die na elke wijziging.
+Er is **geen linter** geconfigureerd. `npm run build` (via `vue-tsc -b`) is de typecheck en
+`npm test` de gedragscontrole; draai ze allebei na een wijziging.
 [scripts/test-chat.mjs](scripts/test-chat.mjs) is een ad-hoc debugscript tegen
 `packages/chat-mcp/dist/`, geen test.
+
+### Wat de tests wél en niet dekken
+
+[vitest.config.ts](vitest.config.ts), tests als `*.test.ts` naast de code, environment `node`.
+Ze draaien tegen `src/` van de packages, niet tegen `dist/`, dus je hoeft niet eerst te bouwen.
+
+Gedekt zijn de pure functies waar de bugs zaten: de BM25-tokenizer en -ranking, het replayen van
+de VS Code-snapshot-plus-patches (`readFullSnapshot`), `buildClaudeTurns` inclusief wat er
+nadrukkelijk **niet** in de index hoort (`tool_result`, sidechains, harness-injecties), het
+onderscheid tussen `buildIndexableText` en `buildLLMContext`, en de sessie-parsecache.
+
+Niet gedekt: alles wat echte opslag of een DOM nodig heeft — de connectors, de Pinia-stores, de
+Vue-componenten en de Vite API-plugin. Daarvoor blijft de browser de verificatie. Een test die
+tóch een DOM nodig heeft zet `// @vitest-environment happy-dom` bovenaan het bestand (en
+installeert `happy-dom`).
+
+**Testbestanden staan in `exclude` van de drie tsconfigs.** Zonder dat compileert `tsc` ze mee
+naar `dist/` en belandt vitest in de runtime-afhankelijkheden van de MCP-server.
 
 Dagelijks werken gaat via de VS Code-taak **"Dev (watch + vite)"** (`Ctrl+Shift+B`): die draait
 `tsc --watch` op `packages/chat-mcp` parallel aan de vite dev-server.
