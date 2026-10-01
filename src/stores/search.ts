@@ -23,6 +23,7 @@ import {
   CHAT_MODEL_DEFAULT,
 } from "@/search/github-models";
 import type { InsightEntry } from "@/types";
+import { chatSessionUrl, isChatEntry } from "@/utils/chat-source";
 import type { HybridResult } from "@/search/hybrid";
 import type { ChatMessage } from "@/search/github-models";
 
@@ -356,7 +357,7 @@ export const useSearchStore = defineStore("search", () => {
         const commitEntries = candidates.filter(
           (e) => e.meta.source === "commit",
         );
-        const chatEntries = candidates.filter((e) => e.meta.source === "chat");
+        const chatEntries = candidates.filter((e) => isChatEntry(e));
 
         // Commits are small — always include fully
         const commitsBlock = commitEntries
@@ -370,9 +371,7 @@ export const useSearchStore = defineStore("search", () => {
         askChatTotal.value = chatEntries.length;
         const sessionResults = await Promise.allSettled(
           chatEntries.map(async (e) => {
-            const res = await fetch(
-              `/api/chat-session?id=${encodeURIComponent(e.id)}`,
-            );
+            const res = await fetch(chatSessionUrl(e));
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const session = (await res.json()) as ApiChatSession;
             askChatProgress.value++;
@@ -494,8 +493,9 @@ Als je iets niet kunt beantwoorden op basis van de context, zeg dat dan eerlijk.
           if (e.meta.source === "commit") {
             return `[COMMIT] ${date} — ${e.projectId}: ${e.meta.title}${e.meta.description ? ` (${e.meta.description})` : ""}`;
           }
-          if (e.meta.source === "chat") {
-            return `[CHAT] ${date} — ${e.projectId}: ${e.meta.title}${e.meta.description ? ` | ${e.meta.description}` : ""}`;
+          if (isChatEntry(e)) {
+            const tag = e.meta.source === "claude-chat" ? "CLAUDE" : "CHAT";
+            return `[${tag}] ${date} — ${e.projectId}: ${e.meta.title}${e.meta.description ? ` | ${e.meta.description}` : ""}`;
           }
           return `[${e.meta.source.toUpperCase()}] ${date} — ${e.projectId}: ${e.meta.title}`;
         })
@@ -527,8 +527,7 @@ Huidige datum: ${new Date().toLocaleDateString("nl-NL")}`,
       const contextStats: AskContextStats = {
         commits: fallbackSlice.filter((r) => r.entry.meta.source === "commit")
           .length,
-        chats: fallbackSlice.filter((r) => r.entry.meta.source === "chat")
-          .length,
+        chats: fallbackSlice.filter((r) => isChatEntry(r.entry)).length,
         timeRangeDays: null,
         contextChars: context.length,
         wasTrimmed: false,

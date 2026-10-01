@@ -52,6 +52,7 @@ function loadSettings(): AppSettings {
     enabledSources: {
       commit: true,
       chat: true,
+      "claude-chat": true,
       "file-change": true,
       teams: false,
       email: false,

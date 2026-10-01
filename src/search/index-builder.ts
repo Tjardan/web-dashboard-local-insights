@@ -14,6 +14,7 @@ import type { InsightEntry } from "@/types";
 import type { BM25Document } from "./bm25";
 import type { VectorDocument } from "./vector-store";
 import { contentHash } from "./vector-store";
+import { isChatSource } from "@/utils/chat-source";
 
 // ─── BM25 document construction ───────────────────────────────────────────────
 
@@ -37,7 +38,10 @@ export function entryToBM25Doc(entry: InsightEntry): BM25Document {
     };
   }
 
-  if (meta.source === "chat") {
+  // Both chat sources share this branch. Falling through to the generic one
+  // below would silently drop indexableText — the bulk of what makes a chat
+  // searchable — so any new chat source must be added to CHAT_SOURCES.
+  if (isChatSource(meta.source)) {
     return {
       id: entry.id,
       fields: [
@@ -89,11 +93,11 @@ export function entryToVectorDoc(entry: InsightEntry): VectorDocument {
     ]
       .filter(Boolean)
       .join("\n");
-  } else if (meta.source === "chat") {
+  } else if (isChatSource(meta.source)) {
     const indexableText = meta.extra?.indexableText as string | undefined;
     text = [
       `Project: ${entry.projectId}`,
-      `Type: Copilot chat session`,
+      `Type: ${meta.source === "claude-chat" ? "Claude Code" : "Copilot"} chat session`,
       `Title: ${meta.title}`,
       meta.description ? `Summary: ${meta.description}` : "",
       `Date: ${meta.timestamp}`,

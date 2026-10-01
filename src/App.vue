@@ -8,6 +8,7 @@ import { useSettingsStore } from "@/stores/settings";
 import {
   gitCommitConnector,
   chatHistoryConnector,
+  claudeChatConnector,
   teamsConnector,
   teamsFileConnector,
   registerSourceConnector,
@@ -25,7 +26,13 @@ watchEffect(() => {
 });
 
 // Register all connectors (both in store and global registry)
-for (const connector of [gitCommitConnector, chatHistoryConnector, teamsConnector, teamsFileConnector]) {
+for (const connector of [
+  gitCommitConnector,
+  chatHistoryConnector,
+  claudeChatConnector,
+  teamsConnector,
+  teamsFileConnector,
+]) {
   projectsStore.registerConnector(connector);
   registerSourceConnector(connector);
 }

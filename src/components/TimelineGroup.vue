@@ -29,6 +29,7 @@ function formatTime(timestamp: string): string {
 const badgeClass: Record<string, string> = {
   commit: "neon-badge--commit",
   chat: "neon-badge--chat",
+  "claude-chat": "neon-badge--claude-chat",
   teams: "neon-badge--teams",
   email: "neon-badge--email",
 };
@@ -36,6 +37,7 @@ const badgeClass: Record<string, string> = {
 const sourceLabel: Record<string, string> = {
   commit: "commit",
   chat: "chat",
+  "claude-chat": "claude",
   teams: "teams",
   email: "e-mail",
 };

@@ -361,6 +361,10 @@ a:hover {
   color: var(--neon-cyan);
 }
 
+.neon-badge--claude-chat {
+  color: var(--neon-orange);
+}
+
 .neon-badge--file {
   color: var(--neon-purple);
 }

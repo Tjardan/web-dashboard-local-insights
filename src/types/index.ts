@@ -5,7 +5,10 @@
 /** Known source types — extensible via string union */
 export type SourceType =
   | "commit"
+  /** VS Code Copilot chat sessions */
   | "chat"
+  /** Claude Code chat sessions */
+  | "claude-chat"
   | "file-change"
   | "teams"
   | "email"

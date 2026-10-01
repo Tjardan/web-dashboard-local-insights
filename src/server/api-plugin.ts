@@ -7,7 +7,7 @@ import type { Plugin } from "vite";
 import { execFile } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { join, normalize } from "node:path";
-import { listSessions, readSession } from "@devpulse/chat-mcp";
+import { getProvider, type ChatSource } from "@devpulse/chat-mcp";
 import { cacheRead, cacheWrite, isCacheFresh } from "./cache.js";
 import {
   readToken,
@@ -476,10 +476,16 @@ export function devPulseApiPlugin(): Plugin {
             const workspaceFilter = rawFilter?.replace(/\\/g, "/");
             const since = url.searchParams.get("since"); // ISO timestamp — incremental mode
             const limit = url.searchParams.get("limit");
+            // Which assistant's history to read; omitted means Copilot, so the
+            // endpoint keeps answering older clients unchanged.
+            const source = (url.searchParams.get("source") ??
+              "copilot") as ChatSource;
+            const provider = getProvider(source);
+            if (!provider) return sendError(res, `Unknown source: ${source}`);
             try {
               // Incremental: get all sessions, filter by lastModified > since
               if (since) {
-                const sessions = await listSessions({
+                const sessions = await provider.listSessions({
                   workspaceFilter,
                   sort: "newest",
                   includeIndexableText: true,
@@ -490,14 +496,16 @@ export function devPulseApiPlugin(): Plugin {
                 );
               }
 
-              // Full fetch — server cache (TTL 2 min), chat files change frequently
-              const ck = `chat-sessions-v2:${workspaceFilter ?? ""}`;
+              // Full fetch — server cache (TTL 2 min), chat files change frequently.
+              // Key carries source and limit: both change the payload, and v3
+              // marks the added `source` field on every session.
+              const ck = `chat-sessions-v3:${source}:${limit ?? ""}:${workspaceFilter ?? ""}`;
               const cached = cacheRead<unknown[]>(ck);
               if (cached && isCacheFresh(cached, 120)) {
                 return sendJson(res, cached.data);
               }
 
-              const sessions = await listSessions({
+              const sessions = await provider.listSessions({
                 workspaceFilter,
                 sort: "newest",
                 limit: limit ? parseInt(limit, 10) : undefined,
@@ -518,8 +526,12 @@ export function devPulseApiPlugin(): Plugin {
           if (url.pathname === "/api/chat-session") {
             const sessionId = url.searchParams.get("id");
             if (!sessionId) return sendError(res, "Missing id parameter");
+            const source = (url.searchParams.get("source") ??
+              "copilot") as ChatSource;
+            const provider = getProvider(source);
+            if (!provider) return sendError(res, `Unknown source: ${source}`);
             try {
-              const session = await readSession(sessionId);
+              const session = await provider.readSession(sessionId);
               if (!session)
                 return sendError(res, `Session not found: ${sessionId}`, 404);
               return sendJson(res, session);

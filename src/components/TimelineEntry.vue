@@ -5,6 +5,7 @@ import type { InsightEntry } from "@/types";
 import { useProjectsStore } from "@/stores/projects";
 import { buildCommitUrl } from "@/utils/git-remote";
 import { highlightText, extractSnippet } from "@/utils/highlight-text";
+import { chatSessionUrl, isChatSource } from "@/utils/chat-source";
 import ChatTurn from "@/components/ChatTurn.vue";
 
 const props = defineProps<{
@@ -122,7 +123,7 @@ async function loadSession(id: string) {
   if (loadedSession.value) return;
   isLoadingSession.value = true;
   try {
-    const res = await fetch(`/api/chat-session?id=${encodeURIComponent(id)}`);
+    const res = await fetch(chatSessionUrl(props.entry));
     if (res.ok) {
       const session = (await res.json()) as ParsedSession;
       session.turns = session.turns.map((t) => ({
@@ -148,7 +149,7 @@ async function toggleChat() {
 watchEffect(() => {
   if (
     props.focusedEntryId === props.entry.id &&
-    props.entry.meta.source === "chat" &&
+    isChatSource(props.entry.meta.source) &&
     !isExpanded.value
   ) {
     toggleChat();
@@ -226,9 +227,19 @@ function formatTime(timestamp: string): string {
 const badgeClass: Record<string, string> = {
   commit: "neon-badge--commit",
   chat: "neon-badge--chat",
+  "claude-chat": "neon-badge--claude-chat",
   teams: "neon-badge--teams",
   email: "neon-badge--email",
 };
+
+/** Badge text; sources whose type name reads badly get a shorter label. */
+const sourceLabel: Record<string, string> = {
+  "claude-chat": "claude",
+  "teams-file": "teams",
+};
+
+/** Chat entries are the expandable ones, regardless of which assistant wrote them. */
+const isChat = computed(() => isChatSource(props.entry.meta.source));
 
 const statusIcon: Record<string, string> = {
   A: "✚",
@@ -250,16 +261,16 @@ const statusColor: Record<string, string> = {
   <div
     class="timeline-entry neon-card"
     :class="{
-      'timeline-entry--clickable': entry.meta.source === 'chat',
-      'timeline-entry--expanded': entry.meta.source === 'chat' && isExpanded,
+      'timeline-entry--clickable': isChat,
+      'timeline-entry--expanded': isChat && isExpanded,
     }"
     :data-session-id="sessionId ?? undefined"
-    @click="entry.meta.source === 'chat' ? toggleChat() : undefined"
+    @click="isChat ? toggleChat() : undefined"
   >
     <div class="timeline-entry__header">
       <div class="timeline-entry__header-left">
         <span class="neon-badge" :class="badgeClass[entry.meta.source] ?? ''">
-          {{ entry.meta.source }}
+          {{ sourceLabel[entry.meta.source] ?? entry.meta.source }}
         </span>
         <!-- External link for commits -->
         <a
@@ -366,7 +377,7 @@ const statusColor: Record<string, string> = {
 
     <!-- Expand bar for chat entries -->
     <button
-      v-if="entry.meta.source === 'chat'"
+      v-if="isChat"
       class="timeline-entry__expand-bar"
       :class="{ 'timeline-entry__expand-bar--open': isExpanded }"
       @click.stop="toggleChat()"
@@ -387,7 +398,7 @@ const statusColor: Record<string, string> = {
     <!-- ── Inline chat session expansion ──────────────────── -->
     <Transition name="chat-expand">
       <div
-        v-if="entry.meta.source === 'chat' && isExpanded"
+        v-if="isChat && isExpanded"
         class="timeline-entry__session"
         :data-session-id="sessionId ?? undefined"
         @click.stop

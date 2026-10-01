@@ -143,19 +143,19 @@ Nieuwe bronnen toevoegen = nieuw bestand in `src/connectors/` + registreren.
 `ensureIndex()` roept `listSessions()` hard aan. Zolang dat zo is, wordt elke extra bron een tweede
 hardcoded pad. Deze fase haalt die aanname eruit.
 
-- [ ] `SessionProvider`-interface met `listSessions()` / `readSession()`; VS Code Copilot wordt de eerste implementatie
-- [ ] Bron meenemen in de cachesleutel van `ensureIndex()`; `source`-parameter op `devpulse_search` (`copilot` | `claude` | `all`) en een `source`-veld op elk resultaat
-- [ ] Sessie-ID's prefixen (`copilot:<id>` / `claude:<uuid>`) zodat twee bronnen in één BM25-index geen ID's delen
-- [ ] **Opstarttijd: index persistent cachen op schijf.** De eerste tool-call in een vers proces kost nu ~22 s omdat 812 JSONL-sessies volledig geparsed worden; daarna is het milliseconden. Een cache naast `.devpulse-cache/`, geïnvalideerd op bestands-mtime, haalt die kosten weg — en met twee bronnen verdubbelt dat probleem anders. Hoort hier thuis omdat de cachesleutel de bron moet bevatten en de provider-interface de natuurlijke plek is om het achter te zetten.
+- [x] `SessionProvider`-interface met `listSessions()` / `readSession()`; `copilotProvider` en `claudeProvider` in `providers.ts`
+- [x] Bron meenemen in de cachesleutel van `ensureIndex()`; `source`-parameter op `devpulse_search` (`copilot` | `claude` | `all`) en een `source`-veld op elk resultaat
+- [x] Documentsleutel `${source}:${id}` zodat twee bronnen in één BM25-index geen ID's delen
+- [ ] **Opstarttijd: index persistent cachen op schijf.** De eerste tool-call in een vers proces kost ~19 s. Vrijwel alles daarvan is de Copilot-kant: 812 sessies in ~19 s tegenover 50 Claude-sessies in 0,8 s, want de snapshot-plus-patches moeten per sessie gereplayed worden. Een cache naast `.devpulse-cache/`, geïnvalideerd op bestands-mtime, haalt die kosten weg. De provider-interface is de natuurlijke plek om het achter te zetten, en de cachesleutel bevat de bron al.
 
 ### Fase 4 — Uitbreiding Bronnen
 
-- [ ] **Claude Code-chats als tweede chatbron** (vereist Fase 3c)
-  - Opslag: `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` — platte append-only JSONL, géén snapshot-met-patches zoals VS Code. Projectpad uit het `cwd`-veld lezen, niet uit de mapnaam (die is niet eenduidig terug te rekenen bij worktrees)
-  - Indexeren: alleen `user:text` en `assistant:text`. `tool_result` bevat volledige bestandsinhoud en shell-output — meenemen vult de 100k-cap met ruis en sloopt de BM25-ranking. `thinking` en `tool_use` eruit, `isSidechain: true` overslaan
-  - Titel is gratis: `ai-title`- en `custom-title`-records
-  - Let op `src/search/index-builder.ts`: beide takken matchen op `meta.source === "chat"`, dus een `claude-chat`-entry valt stil terug op de generieke tak en verliest daar `indexableText`
-  - Worktree-paden (`…-worktrees-…`) horen bij projecten die `discover-projects` niet vindt — dat scant alleen directe subdirectories van de rootfolders
+- [x] **Claude Code-chats als tweede chatbron** — `claudeProvider` in de MCP, `claude-chat`-connector in het dashboard, oranje badge, uitklapbaar in de timeline
+  - Opslag: `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl` — platte append-only JSONL, géén snapshot-met-patches zoals VS Code. Projectpad uit het `cwd`-veld, niet uit de mapnaam (die is lossy bij worktrees)
+  - Geïndexeerd: alleen `user:text` en `assistant:text`. `tool_result` (bestandsinhoud, shell-output), `thinking`, `tool_use`, `image` en de harness-injecties (`<system-reminder>`, `<ide_opened_file>`, …) blijven eruit; `isSidechain: true` wordt overgeslagen
+  - Gemeten: 50 sessies, 1,6 MB indexeerbare tekst, 0,8 s om te lezen. 46 ervan vallen onder een ontdekt project; de rest zijn scratch-workspaces en een UNC-pad
+  - Gedeelde chatlogica staat in `src/utils/chat-source.ts`; een derde bron moet daar in `CHAT_SOURCES`
+  - Nog open: **worktree-sessies vallen onder hun hoofdproject** omdat het pad-filter op substring matcht (`d:\Anta\runner.worktrees\afh` telt mee bij `runner`). Dat is nu wenselijk, maar als `discover-projects` ooit worktrees apart ontdekt, botsen de twee
 - [ ] Teams communicatie connector (voorbereid)
 - [ ] Email communicatie connector (voorbereid)
 - [ ] Output generatie (rapporten, samenvattingen)

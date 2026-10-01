@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useRouter } from "vue-router";
 import SourceFilter from "@/components/SourceFilter.vue";
 import SkeletonCard from "@/components/SkeletonCard.vue";
+import { isChatEntry } from "@/utils/chat-source";
 
 const projectsStore = useProjectsStore();
 const settingsStore = useSettingsStore();
@@ -169,7 +170,7 @@ function openProject(id: string) {
                   {{
                     projectsStore
                       .entriesForProject(project.id)
-                      .filter((e) => e.meta.source === "chat").length
+                      .filter((e) => isChatEntry(e)).length
                   }}
                 </span>
                 <span class="stat__label">chats</span>
@@ -180,7 +181,7 @@ function openProject(id: string) {
                   {{
                     projectsStore
                       .entriesForProject(project.id)
-                      .filter((e) => e.meta.source === "chat")
+                      .filter((e) => isChatEntry(e))
                       .reduce(
                         (sum, e) =>
                           sum + ((e.meta.extra?.messageCount as number) ?? 0),
