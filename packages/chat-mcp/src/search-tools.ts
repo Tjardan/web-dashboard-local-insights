@@ -1,18 +1,19 @@
 /**
  * DevPulse Search MCP tools.
  *
- * Exposes three MCP-callable tools that VS Code Copilot can invoke:
+ * Backs the two tools exposed by mcp-server.ts:
  *
- *   devpulse_search_bm25
- *     BM25+ lexical search over all chat sessions for a workspace.
- *     Fast, no API key required.
+ *   devpulse_search        → searchBM25()
+ *     BM25+ lexical search over all chat sessions, optionally filtered by
+ *     workspace. Fast, no API key required.
  *
- *   devpulse_search_ask
- *     RAG: BM25 retrieval + GitHub Models gpt-4o-mini answer.
- *     Requires GitHub PAT passed as `githubToken`.
+ *   devpulse_index_status  → getIndexStatus()
+ *     Index stats. Builds the index first, so it never reports "unavailable"
+ *     for an index that a search would have built anyway.
  *
- *   devpulse_index_status
- *     Returns current index stats (doc count, workspaces scanned, etc.)
+ * The index is built lazily and rebuilt whenever it is older than
+ * INDEX_TTL_MS — both entry points go through ensureIndex(), so a search
+ * always returns current data regardless of what the cache held before.
  *
  * Usage from MCP host (VS Code mcp config):
  *   {
@@ -104,7 +105,7 @@ export interface SearchBM25Params {
   workspaceFilter?: string;
   topK?: number;
   since?: string;
-  /** When true, include session content (recap-delta indexable text) in each result */
+  /** When true, include the session's indexable text (all turns, thinking and tool calls stripped) in each result */
   includeContent?: boolean;
   /** Max chars of content to include per session (default 8000) */
   contentMaxChars?: number;
@@ -120,7 +121,7 @@ export interface SearchBM25Result {
   lastModified: string;
   messageCount: number;
   snippet?: string;
-  /** Session content (recap-delta text) — only present when includeContent=true */
+  /** Session content — only present when includeContent=true */
   content?: string;
 }
 
@@ -131,11 +132,18 @@ export async function searchBM25(
 
   const topK = params.topK ?? 6;
   const contentMaxChars = params.contentMaxChars ?? 8000;
-  const results = cache.bm25.search(params.query, topK);
+
+  // When a date filter is active, retrieve a wider candidate set: the filter is
+  // applied per result, so slicing to topK first would let older-but-higher-scoring
+  // sessions crowd out the matches that actually fall inside the window.
+  const candidateK = params.since ? Math.max(topK * 5, 50) : topK;
+  const results = cache.bm25.search(params.query, candidateK);
 
   const enriched: SearchBM25Result[] = [];
 
   for (const r of results) {
+    if (enriched.length >= topK) break;
+
     const entry = cache.entries.find((e) => e.id === r.id);
     if (!entry) continue;
 
@@ -168,27 +176,38 @@ export async function searchBM25(
 // ─── Tool: devpulse_index_status ─────────────────────────────────────────────
 
 export interface IndexStatusResult {
+  /** Number of indexed chat sessions */
   docCount: number;
-  indexedAt: string | null;
-  isStale: boolean;
+  /** Number of distinct workspaces those sessions came from */
+  workspaceCount: number;
+  /** When this index was built (ISO-8601) */
+  indexedAt: string;
+  /** lastModified of the most recently touched session on disk (ISO-8601), or null when empty */
+  newestSessionAt: string | null;
 }
 
-export function getIndexStatus(): IndexStatusResult {
-  const now = new Date();
-  // Report on the global (unfiltered) cache entry, falling back to the most recently built one
-  const global = indexCaches.get("");
-  const latest =
-    global ??
-    [...indexCaches.values()].sort(
-      (a, b) => b.indexedAt.getTime() - a.indexedAt.getTime(),
-    )[0];
+/**
+ * Report on the global (unfiltered) index, building it first when needed.
+ *
+ * Deliberately does NOT report cache age as staleness. The index is lazily
+ * built per process and rebuilt on TTL expiry by ensureIndex(), so a cold or
+ * expired cache says nothing about the data — it only means no search has run
+ * yet in this process. Reporting that as "stale"/"unavailable" was misleading:
+ * callers saw a warning while searches returned fully current results.
+ *
+ * After the await below the index is current by construction, so the numbers
+ * describe the data rather than the cache.
+ */
+export async function getIndexStatus(): Promise<IndexStatusResult> {
+  const cache = await ensureIndex();
 
-  const isStale =
-    !latest || now.getTime() - latest.indexedAt.getTime() > INDEX_TTL_MS;
+  // entries are sorted newest-first by listSessions({ sort: "newest" })
+  const newestSessionAt = cache.entries[0]?.lastModified ?? null;
 
   return {
-    docCount: latest?.bm25.size ?? 0,
-    indexedAt: latest?.indexedAt.toISOString() ?? null,
-    isStale,
+    docCount: cache.bm25.size,
+    workspaceCount: new Set(cache.entries.map((e) => e.workspacePath)).size,
+    indexedAt: cache.indexedAt.toISOString(),
+    newestSessionAt,
   };
 }

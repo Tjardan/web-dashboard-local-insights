@@ -72,10 +72,24 @@ async function readWorkspaceInfo(
 
 // ─── In-memory workspace cache ───────────────────────────────────────────────
 
+/**
+ * The set of workspaces is cached per process, but only for WORKSPACE_CACHE_TTL_MS.
+ *
+ * Both hosts of this module are long-lived: the MCP server runs for as long as
+ * the editor window, the Vite dev server for as long as `npm run dev`. Without a
+ * TTL, a workspace that VS Code creates after that process started stays
+ * invisible until the host restarts — a newly opened project would simply never
+ * appear in the index. Refreshing costs one readdir plus a small read per
+ * workspace, so a short TTL is cheap.
+ */
 let workspaceCache: Map<string, WorkspaceInfo> | undefined;
+let workspaceCachedAt = 0;
+const WORKSPACE_CACHE_TTL_MS = 60 * 1000; // 1 minute
 
 async function getWorkspaceCache(): Promise<Map<string, WorkspaceInfo>> {
-  if (workspaceCache) return workspaceCache;
+  if (workspaceCache && Date.now() - workspaceCachedAt < WORKSPACE_CACHE_TTL_MS) {
+    return workspaceCache;
+  }
 
   const cache = new Map<string, WorkspaceInfo>();
   let entries: string[] = [];
@@ -94,11 +108,14 @@ async function getWorkspaceCache(): Promise<Map<string, WorkspaceInfo>> {
   );
 
   workspaceCache = cache;
+  workspaceCachedAt = Date.now();
   return cache;
 }
 
+/** Force the next getWorkspaceCache() call to rescan, ignoring the TTL. */
 export function invalidateWorkspaceCache(): void {
   workspaceCache = undefined;
+  workspaceCachedAt = 0;
 }
 
 // ─── JSONL parsing ───────────────────────────────────────────────────────────

@@ -103,7 +103,7 @@ const TOOLS = [
         includeContent: {
           type: "boolean",
           description:
-            "When true, include the session content (recap-delta indexable text) in each result. Use this when you need to analyse or summarise what was discussed. The calling LLM handles the analysis — no token required.",
+            "When true, include the session content in each result: all turns of the conversation, with thinking blocks and tool calls stripped out. Use this when you need to analyse or summarise what was discussed. The calling LLM handles the analysis — no token required.",
         },
         contentMaxChars: {
           type: "number",
@@ -117,7 +117,7 @@ const TOOLS = [
   {
     name: "devpulse_index_status",
     description:
-      "Returns search index statistics: document count, last indexed timestamp, and whether the index is stale.",
+      "Returns search index statistics: number of indexed sessions, number of workspaces, when the index was built, and the timestamp of the most recently modified session. The index is built on demand and refreshed by every search, so these numbers always describe current data — there is no stale or unavailable state to act on.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -187,7 +187,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
           }
 
           case "devpulse_index_status": {
-            const status = getIndexStatus();
+            const status = await getIndexStatus();
             const statusJson = JSON.stringify(status, null, 2);
             const statusOutput = JSON.stringify(
               {

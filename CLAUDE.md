@@ -114,13 +114,28 @@ nodig. Zet in consumercode `?? []` / `?? null` op nieuwe optionele velden als va
 aanbiedt aan VS Code Copilot. De serverkant van het dashboard importeert dezelfde package als
 bibliotheek.
 
+Dat dubbelgebruik heeft één scherpe rand: de MCP spreekt **newline-gescheiden JSON-RPC over stdout**.
+Eén `console.log` ergens in `packages/chat-mcp` breekt dat protocol stil, terwijl diezelfde regel aan
+de Vite-kant volkomen ongevaarlijk is. Log in deze package daarom uitsluitend met `console.warn` of
+`console.error` — die gaan naar stderr.
+
+De index van de MCP-server is **lui en per proces**: `ensureIndex()` bouwt hem bij de eerste
+tool-call en ververst hem na 5 minuten; de workspace-lijst eronder heeft een eigen TTL van 1 minuut,
+zodat een workspace die ná het starten van de server is aangemaakt alsnog meekomt. De eerste call in
+een vers proces kost daardoor ~20 s (812 sessies parsen), daarna is het milliseconden.
+
 ## Chat-indexering
 
-`listSessions({ includeIndexableText: true })` bouwt per sessie de te indexeren tekst op
-([packages/chat-mcp/src/formatter.ts](packages/chat-mcp/src/formatter.ts)): `<thinking>`-blokken en
-tool-calls eruit, en een **recap-delta-strategie** — `detectLastRecapTurn()` zoekt de laatste
-gebruikersvraag om een samenvatting (Nederlands + Engels, ≤ 300 tekens, alleen bij 8+ turns) en
-indexeert vanaf die samenvatting. Harde grens van 100.000 tekens per sessie.
+`listSessions({ includeIndexableText: true })` bouwt per sessie de te indexeren tekst op met
+`buildIndexableText()` ([packages/chat-mcp/src/formatter.ts](packages/chat-mcp/src/formatter.ts)):
+**alle** turns, met `<thinking>`-blokken en tool-calls eruit. Harde grens van 100.000 tekens per
+sessie. Compact-samenvattingen gaan er als extra tekst bij in, maar vervángen de turns niet.
+
+De **recap-delta-strategie** zit níét in de index, alleen in `buildLLMContext()` — die snijdt bij de
+laatste `/compact` af om de LLM-context klein te houden. `detectLastRecapTurn()` zoekt daarvoor
+`<summary>`-blokken die VS Code bij een compact schrijft; het heeft niets met een tekenlimiet of een
+minimum aantal turns te maken. De splitsing is bewust (commit 7e0fb5e): volledig indexeren,
+token-efficiënt samenvatten.
 
 De tekst reist via `GET /api/chat-sessions` → connector → `meta.extra.indexableText` naar de
 BM25-index (gewicht ×1, tegenover titel ×3 en description/projectId ×2) en de eerste 2.000 tekens
