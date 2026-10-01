@@ -4,6 +4,8 @@ import { useSearchStore } from "@/stores/search";
 import { useProjectsStore } from "@/stores/projects";
 import { useRouter } from "vue-router";
 import { highlightText } from "@/utils/highlight-text";
+import { isChatEntry } from "@/utils/chat-source";
+import type { SourceType } from "@/types";
 import type { AskResult } from "@/stores/search";
 import {
   setGithubToken,
@@ -147,9 +149,11 @@ function openProject(id: string) {
   router.push(`/project/${id}`);
 }
 
-function openChat(projectId: string, _sessionId: unknown) {
+function openChat(projectId: string, source: SourceType) {
   // Chat sessions are now expanded inline in the timeline.
-  router.push(`/timeline?source=chat&project=${encodeURIComponent(projectId)}`);
+  router.push(
+    `/timeline?source=${encodeURIComponent(source)}&project=${encodeURIComponent(projectId)}`,
+  );
 }
 
 // ── Initial BM25 build on mount ────────────────────────────────────────────────
@@ -420,11 +424,8 @@ watch(
           :key="result.id"
           class="result-card neon-card"
           @click="
-            result.entry.meta.source === 'chat'
-              ? openChat(
-                  result.entry.projectId,
-                  result.entry.meta.extra?.sessionId,
-                )
+            isChatEntry(result.entry)
+              ? openChat(result.entry.projectId, result.entry.meta.source)
               : openProject(result.entry.projectId)
           "
         >

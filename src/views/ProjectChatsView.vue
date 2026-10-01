@@ -3,6 +3,8 @@ import { useRoute, useRouter } from "vue-router";
 import { computed, ref, onMounted, nextTick } from "vue";
 import { useProjectsStore } from "@/stores/projects";
 import ChatTurn from "@/components/ChatTurn.vue";
+import type { InsightEntry } from "@/types";
+import { chatSessionUrl, isChatEntry } from "@/utils/chat-source";
 
 interface ToolCallInfo {
   toolId: string;
@@ -35,7 +37,7 @@ const projectId = computed(() => route.params.id as string);
 const chatEntries = computed(() =>
   projectsStore
     .entriesForProject(projectId.value)
-    .filter((e) => e.meta.source === "chat")
+    .filter((e) => isChatEntry(e))
     .sort(
       (a, b) =>
         new Date(b.meta.timestamp).getTime() -
@@ -47,20 +49,25 @@ const expandedChat = ref<string | null>(null);
 const loadedSessions = ref<Record<string, ParsedSession>>({});
 const loadingSession = ref<string | null>(null);
 
-async function toggleChat(id: string) {
-  if (expandedChat.value === id) {
+async function toggleChat(entry: InsightEntry) {
+  if (expandedChat.value === entry.id) {
     expandedChat.value = null;
     return;
   }
-  expandedChat.value = id;
-  await loadSession(id);
+  expandedChat.value = entry.id;
+  await loadSession(entry);
 }
 
-async function loadSession(id: string) {
+/**
+ * Takes the whole entry, not just an ID: the URL needs the source as well, and
+ * a Claude entry's `id` carries a `claude:` prefix the API does not accept.
+ */
+async function loadSession(entry: InsightEntry) {
+  const id = entry.id;
   if (loadedSessions.value[id]) return;
   loadingSession.value = id;
   try {
-    const res = await fetch(`/api/chat-session?id=${encodeURIComponent(id)}`);
+    const res = await fetch(chatSessionUrl(entry));
     if (res.ok) {
       const session = (await res.json()) as ParsedSession;
       // Normalize: older compiled package versions may omit toolCalls
@@ -80,8 +87,10 @@ async function loadSession(id: string) {
 onMounted(async () => {
   const targetSession = route.query.session as string | undefined;
   if (!targetSession) return;
+  const entry = chatEntries.value.find((e) => e.id === targetSession);
+  if (!entry) return;
   expandedChat.value = targetSession;
-  await loadSession(targetSession);
+  await loadSession(entry);
   await nextTick();
   const el = document.querySelector<HTMLElement>(
     `[data-session-id="${CSS.escape(targetSession)}"]`,
@@ -164,7 +173,7 @@ function formatDate(timestamp: string): string {
         class="chat-session neon-card"
         :class="{ 'chat-session--expanded': expandedChat === entry.id }"
       >
-        <div class="chat-session__header" @click="toggleChat(entry.id)">
+        <div class="chat-session__header" @click="toggleChat(entry)">
           <div class="chat-session__meta">
             <h3 class="chat-session__title">{{ entry.meta.title }}</h3>
             <span class="chat-session__date">{{

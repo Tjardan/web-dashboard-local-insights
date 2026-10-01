@@ -131,8 +131,27 @@ nodig. Zet in consumercode `?? []` / `?? null` op nieuwe optionele velden als va
 
 `packages/chat-mcp` is daarnaast een zelfstandige MCP-server (`bin: devpulse-mcp` →
 `dist/mcp-server.js`, JSON-RPC over stdio) die `devpulse_search` en `devpulse_index_status`
-aanbiedt aan VS Code Copilot. De serverkant van het dashboard importeert dezelfde package als
+aanbiedt aan een MCP-host. De serverkant van het dashboard importeert dezelfde package als
 bibliotheek.
+
+**Die MCP-server is een derde plek die blijft hangen op oude code**, naast de Vite-server en
+`node_modules/@devpulse/`. Hij draait als een eigen langlevend proces uit `dist/`, dus de volle
+cyclus bij werk aan deze package is:
+
+```
+npm run build:packages     # of de watch-taak
+/mcp  →  devpulse-chat  →  Reconnect     (in Claude Code)
+```
+
+De registratie staat op user-scope in `~/.claude.json`, dus hij geldt in elk project; `claude mcp get
+devpulse-chat` toont hem. Er is geen `claude mcp restart` — `/mcp` → Reconnect of een nieuw gesprek
+zijn de twee manieren. Controleer achteraf met `devpulse_index_status`: komt daar een `sources`-blok
+uit, dan draait de nieuwe code (een oud proces antwoordt nog met `isStale`).
+
+Let op dat een reconnect alleen het **proces** ververst, niet de tool-schema's die de host in een
+lopend gesprek aanbiedt. Nieuwe parameters werken dan wel al, maar een model dat de bijgewerkte
+beschrijving nog niet heeft gezien gaat ze niet uit zichzelf gebruiken — daarvoor is een nieuw
+gesprek nodig.
 
 Dat dubbelgebruik heeft één scherpe rand: de MCP spreekt **newline-gescheiden JSON-RPC over stdout**.
 Eén `console.log` ergens in `packages/chat-mcp` breekt dat protocol stil, terwijl diezelfde regel aan

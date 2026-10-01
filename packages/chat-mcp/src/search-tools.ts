@@ -126,7 +126,7 @@ async function ensureIndex(
   return cache;
 }
 
-// ─── Tool: devpulse_search_bm25 ──────────────────────────────────────────────
+// ─── Tool: devpulse_search ───────────────────────────────────────────────────
 
 export interface SearchBM25Params {
   query: string;
