@@ -1,12 +1,5 @@
 {
   "servers": {
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/"
-    },
-    "awesome-copilot": {
-      "type": "http",
-      "url": "https://mcp.awesome-copilot.com/sse"
-    }
+
   }
 }
