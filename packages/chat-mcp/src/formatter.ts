@@ -340,6 +340,7 @@ function extractRecapContent(compactSummary: string): string | null {
 /**
  * Detect the last turn where VS Code ran /compact (result.metadata.summary
  * contains a <summary>…</summary> block). Returns the turn index, or null.
+ * Claude Code sessions get the same block from claude-formatter.ts.
  */
 export function detectLastRecapTurn(turns: ConversationTurn[]): number | null {
   for (let i = turns.length - 1; i >= 0; i--) {
@@ -354,35 +355,78 @@ export function detectLastRecapTurn(turns: ConversationTurn[]): number | null {
 /** Safety cap: max chars of indexable text per session. */
 const INDEXABLE_TEXT_MAX_CHARS = 100_000;
 
+/** Prefixed when the index had to drop the oldest part of a session. */
+const INDEX_TRUNCATED_MARKER = "[…begin gekort voor index]";
+
 /**
- * Build a plain-text representation of a chat session suitable for BM25 indexing.
- * Always indexes ALL turns so the full session is searchable regardless of /compact.
- * Compact summaries are also included so their condensed content is indexed too.
- * Safety cap at INDEXABLE_TEXT_MAX_CHARS characters.
+ * Join the user and assistant text of `turns`, thinking stripped. With
+ * `withSummaries`, each turn's compact summary is added after its own text.
  */
-export function buildIndexableText(turns: ConversationTurn[]): string {
+function joinTurnText(turns: ConversationTurn[], withSummaries: boolean): string {
   const parts: string[] = [];
 
   for (const t of turns) {
     if (t.userMessage.trim()) parts.push(t.userMessage.trim());
     const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
     if (ai) parts.push(ai);
-    // Also include compact summary content so it's indexed
-    if (t.compactSummary) {
+    if (withSummaries && t.compactSummary) {
       const summary = extractRecapContent(t.compactSummary);
       if (summary) parts.push(summary);
     }
   }
 
-  const text = parts.join("\n");
-  if (text.length <= INDEXABLE_TEXT_MAX_CHARS) return text;
-  return text.slice(0, INDEXABLE_TEXT_MAX_CHARS) + "\n[…gekort voor index]";
+  return parts.join("\n");
+}
+
+/**
+ * The last `maxChars` characters of `text`, starting at a word boundary so the
+ * index does not get a token that is half a word.
+ */
+function takeTail(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= 0) return "";
+  const tail = text.slice(text.length - maxChars);
+  const boundary = tail.search(/\s/);
+  return boundary >= 0 && boundary < 200 ? tail.slice(boundary + 1) : tail;
+}
+
+/**
+ * Build a plain-text representation of a chat session suitable for BM25 indexing.
+ *
+ * Sessions under INDEXABLE_TEXT_MAX_CHARS are indexed in full: all turns, plus
+ * every compact summary, regardless of /compact.
+ *
+ * A longer session cannot be kept whole, and the part that has to go is the
+ * oldest — the newest part is what people search for. So it is cut at the
+ * front: with a compact, the last summary is kept (capped at half the budget)
+ * followed by the turns from that compact on; without one, just the tail. If
+ * even the post-compact turns do not fit, their tail is kept.
+ */
+export function buildIndexableText(turns: ConversationTurn[]): string {
+  const full = joinTurnText(turns, true);
+  if (full.length <= INDEXABLE_TEXT_MAX_CHARS) return full;
+
+  const recapIdx = detectLastRecapTurn(turns);
+  const recap =
+    recapIdx === null
+      ? ""
+      : (extractRecapContent(turns[recapIdx].compactSummary ?? "") ?? "").slice(
+          0,
+          INDEXABLE_TEXT_MAX_CHARS / 2,
+        );
+  const delta = joinTurnText(recapIdx === null ? turns : turns.slice(recapIdx), false);
+
+  const head = [INDEX_TRUNCATED_MARKER, recap].filter(Boolean).join("\n") + "\n";
+  return head + takeTail(delta, INDEXABLE_TEXT_MAX_CHARS - head.length);
 }
 
 /**
  * Build token-efficient context to pass to an LLM for a retrieved session.
  * Applies recap-delta: if a /compact turn exists at index N, returns only the
- * <summary> content + all turns after N — skipping the verbose pre-compact history.
+ * <summary> content + turn N and everything after it — skipping the verbose
+ * pre-compact history. Turn N itself stays in: the compact happened before its
+ * prompt was answered (VS Code), or its turn holds the assistant output that
+ * followed the summary (Claude Code).
  * Falls back to all turns when no /compact is present.
  * Safety cap at LLM_CONTEXT_MAX_CHARS characters.
  */
@@ -395,18 +439,12 @@ export function buildLLMContext(turns: ConversationTurn[]): string {
   if (recapIdx !== null) {
     const recapContent = extractRecapContent(turns[recapIdx].compactSummary ?? "");
     if (recapContent) parts.push(recapContent);
-    for (let i = recapIdx + 1; i < turns.length; i++) {
-      const t = turns[i];
-      if (t.userMessage.trim()) parts.push(`Q: ${t.userMessage.trim()}`);
-      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
-      if (ai) parts.push(`A: ${ai}`);
-    }
-  } else {
-    for (const t of turns) {
-      if (t.userMessage.trim()) parts.push(`Q: ${t.userMessage.trim()}`);
-      const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
-      if (ai) parts.push(`A: ${ai}`);
-    }
+  }
+  for (let i = recapIdx ?? 0; i < turns.length; i++) {
+    const t = turns[i];
+    if (t.userMessage.trim()) parts.push(`Q: ${t.userMessage.trim()}`);
+    const ai = t.aiResponse.replace(THINKING_STRIP_RE, "").trim();
+    if (ai) parts.push(`A: ${ai}`);
   }
 
   const text = parts.join("\n");

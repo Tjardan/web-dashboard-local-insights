@@ -98,6 +98,11 @@ export interface ClaudeRecord {
   gitBranch?: string;
   /** True for records produced by a subagent rather than the main thread */
   isSidechain?: boolean;
+  /**
+   * True for the `user` record Claude Code writes after a compact: its content
+   * is the summary of everything before it, not something the user typed.
+   */
+  isCompactSummary?: boolean;
   message?: {
     role?: string;
     model?: string;
@@ -171,6 +176,8 @@ export interface ConversationTurn {
   /**
    * Full /compact response text from result.metadata.summary.
    * Contains <analysis>…</analysis><summary>…</summary> when VS Code ran /compact.
+   * The Claude reader wraps its compact summary in the same <summary> block, so
+   * the recap detection in formatter.ts works for both sources.
    */
   compactSummary?: string;
 }

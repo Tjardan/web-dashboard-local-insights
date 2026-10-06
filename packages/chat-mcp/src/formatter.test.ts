@@ -12,7 +12,9 @@ import type { ConversationTurn, RawChatRequest } from "./types.js";
  * The split between buildIndexableText and buildLLMContext is the easiest thing
  * in this package to get backwards, and the documentation has described it
  * wrongly before: the index takes *everything*, recap-delta applies only to the
- * context handed to a model. These tests are the record of which is which.
+ * context handed to a model. The one exception is a session over the index
+ * cap, where the index falls back to recap-delta too, so that the newest part
+ * survives. These tests are the record of which is which.
  */
 
 function turn(
@@ -127,11 +129,62 @@ describe("buildIndexableText", () => {
     expect(text).toContain("vraag");
   });
 
-  it("caps very long sessions and says so", () => {
-    const text = buildIndexableText([turn("v", "x".repeat(150_000))]);
+  it("caps very long sessions at the front and says so", () => {
+    // The newest part is what people search for, so the oldest part goes
+    const text = buildIndexableText([
+      turn("eerste vraag", "woord ".repeat(30_000)),
+      turn("laatste vraag", "recent besluit"),
+    ]);
 
-    expect(text.length).toBeLessThan(101_000);
-    expect(text.endsWith("[…gekort voor index]")).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(100_000);
+    expect(text.startsWith("[…begin gekort voor index]")).toBe(true);
+    expect(text).toContain("recent besluit");
+    expect(text).not.toContain("eerste vraag");
+  });
+
+  it("starts the kept tail at a word boundary", () => {
+    const text = buildIndexableText([turn("v", "abcdefghij ".repeat(20_000))]);
+    const body = text.split("\n")[1] ?? "";
+
+    expect(body.startsWith("abcdefghij")).toBe(true);
+  });
+
+  it("keeps the summary and the turns after the compact when a session is too long", () => {
+    const text = buildIndexableText([
+      turn("oude vraag", "oud ".repeat(30_000)),
+      turn("compact", "", "<analysis>intern</analysis><summary>korte recap</summary>"),
+      turn("nieuwe vraag", "gefilterd via dispatch"),
+    ]);
+
+    expect(text.length).toBeLessThanOrEqual(100_000);
+    expect(text.startsWith("[…begin gekort voor index]\nkorte recap\n")).toBe(true);
+    expect(text).toContain("gefilterd via dispatch");
+    expect(text).not.toContain("oude vraag");
+    expect(text).not.toContain("intern");
+  });
+
+  it("keeps the summary and the tail when even the turns after the compact do not fit", () => {
+    const text = buildIndexableText([
+      turn("oude vraag", "oud antwoord"),
+      turn("compact", "", "<summary>korte recap</summary>"),
+      turn("eerste na compact", "na ".repeat(40_000)),
+      turn("laatste vraag", "gefilterd via dispatch"),
+    ]);
+
+    expect(text.length).toBeLessThanOrEqual(100_000);
+    expect(text).toContain("korte recap");
+    expect(text).toContain("gefilterd via dispatch");
+    expect(text).not.toContain("eerste na compact");
+  });
+
+  it("caps an oversized summary so the newest turns still get room", () => {
+    const text = buildIndexableText([
+      turn("compact", "", `<summary>${"recap ".repeat(30_000)}</summary>`),
+      turn("laatste vraag", "gefilterd via dispatch"),
+    ]);
+
+    expect(text.length).toBeLessThanOrEqual(100_000);
+    expect(text).toContain("gefilterd via dispatch");
   });
 
   it("returns an empty string for a session with nothing in it", () => {
@@ -174,6 +227,15 @@ describe("buildLLMContext", () => {
     expect(context).toContain("korte recap");
     expect(context).toContain("nieuwe vraag");
     expect(context).not.toContain("oude vraag");
+  });
+
+  it("keeps the compact turn itself, which holds what followed the summary", () => {
+    const context = buildLLMContext([
+      turn("oude vraag", "oud antwoord"),
+      turn("", "verder na de compact", "<summary>korte recap</summary>"),
+    ]);
+
+    expect(context).toBe("korte recap\nA: verder na de compact");
   });
 
   it("keeps all turns when there was no compact", () => {

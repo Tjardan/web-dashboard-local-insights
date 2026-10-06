@@ -219,11 +219,18 @@ stroom patches die je per sessie moet replayen (812 sessies in ~19 s, tegen 52 C
 **alle** turns, met `<thinking>`-blokken en tool-calls eruit. Harde grens van 100.000 tekens per
 sessie. Compact-samenvattingen gaan er als extra tekst bij in, maar vervángen de turns niet.
 
-De **recap-delta-strategie** zit níét in de index, alleen in `buildLLMContext()` — die snijdt bij de
-laatste `/compact` af om de LLM-context klein te houden. `detectLastRecapTurn()` zoekt daarvoor
-`<summary>`-blokken die VS Code bij een compact schrijft; het heeft niets met een tekenlimiet of een
-minimum aantal turns te maken. De splitsing is bewust (commit 7e0fb5e): volledig indexeren,
-token-efficiënt samenvatten.
+De **recap-delta-strategie** zit in `buildLLMContext()` — die snijdt bij de laatste `/compact` af om
+de LLM-context klein te houden. `detectLastRecapTurn()` zoekt daarvoor `<summary>`-blokken; VS Code
+schrijft die zelf, de Claude-reader verpakt zijn compact-samenvatting (`isCompactSummary`) in
+hetzelfde blok. De splitsing is bewust (commit 7e0fb5e): volledig indexeren, token-efficiënt
+samenvatten.
+
+**Eén uitzondering: een sessie boven de grens.** Die kan niet heel in de index, en wat weg moet is het
+óúdste deel, want het nieuwste is waar je naar zoekt. Dan valt de index terug op de recap-delta
+(laatste samenvatting, maximaal de helft van de grens, plus de turns vanaf de compact), en kapt hij
+**aan de voorkant** af als ook dat niet past; zonder compact blijft gewoon de staart over. De tekst
+begint dan met `[…begin gekort voor index]`. Tot issue #1 kapte de index aan de achterkant af, en
+was van een lange sessie juist het recente deel onvindbaar.
 
 De tekst reist via `GET /api/chat-sessions` → connector → `meta.extra.indexableText` naar de
 BM25-index (gewicht ×1, tegenover titel ×3 en description/projectId ×2) en de eerste 2.000 tekens
@@ -253,6 +260,11 @@ tegenover 390 echte prompts verreweg het grootste deel van de data; indexeer je 
 krijgt. Hetzelfde geldt voor de harness-injecties (`<system-reminder>`, `<ide_opened_file>`, …): die
 zijn niet door de gebruiker getypt en herhalen zich letterlijk over honderden sessies, wat de IDF
 scheeftrekt. `isSidechain: true` wordt overgeslagen — dat zijn subagents, niet het gesprek.
+
+De ene `tool_result` die wél meegaat is het **antwoord op `AskUserQuestion`**: dat typte of koos de
+gebruiker zelf, en het is vaak precies het besluit waar je later naar zoekt. Het gaat met de vraag
+erbij (`"vraag"="antwoord"`) als `**User answered:** …` in de assistent-tekst van die turn. Herkend
+wordt het aan het `tool_use_id` van een `AskUserQuestion`-aanroep, niet aan de tekst.
 
 Beide providers leveren dezelfde `ConversationTurn[]`, zodat `buildIndexableText`, `buildLLMContext`,
 `extractSnippet` en de hele UI bronagnostisch blijven. In de gedeelde BM25-index is de documentsleutel

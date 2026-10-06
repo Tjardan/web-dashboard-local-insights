@@ -36,7 +36,7 @@ import type { ChatSource, SessionSummary } from "./types.js";
  * buildIndexableText() would keep serving yesterday's text for every session
  * that happens not to be touched again.
  */
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 interface CacheEntry {
   v: number;

@@ -6,6 +6,12 @@
  * What is indexed and what is dropped:
  *
  *   kept     user text blocks, assistant text blocks
+ *   kept     answers to AskUserQuestion — technically a tool_result, but the
+ *                           user typed or chose it, and it is often exactly the
+ *                           decision someone later searches for. Kept with the
+ *                           question, in the assistant text where it happened.
+ *   kept     compact summary — a `user` record with `isCompactSummary`, moved
+ *                           to `compactSummary` so it is not read as a prompt
  *   dropped  tool_result  — holds entire file contents and shell output. At
  *                           7 500 records against 390 real prompts this is the
  *                           bulk of the data; indexing it would fill the
@@ -114,6 +120,50 @@ function isToolResultRecord(blocks: ClaudeContentBlock[]): boolean {
   return blocks.some((b) => b.type === "tool_result");
 }
 
+// ─── AskUserQuestion answers ─────────────────────────────────────────────────
+
+/**
+ * Claude Code feeds the answers back as
+ *   Your questions have been answered: "<question>"="<answer>", …. You can now continue…
+ * or, in newer versions,
+ *   The user answered: "<question>"="<answer>", …. Read the answers carefully…
+ * The pairs in between are what the user decided; the sentences around them
+ * are boilerplate. A result without the prefix (the user dismissed the
+ * question, or the tool failed) carries no answer.
+ */
+const ANSWER_HEAD_RE = /^\s*(?:Your questions have been answered|The user answered):\s*/;
+const ANSWER_TAIL_RE =
+  /\.\s*(?:You can now continue with these answers in mind|Read the answers carefully)[\s\S]*$/;
+
+export function askUserAnswerText(content: unknown): string | null {
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? textOf(content as ClaudeContentBlock[])
+        : "";
+  if (!ANSWER_HEAD_RE.test(text)) return null;
+  const answer = text.replace(ANSWER_HEAD_RE, "").replace(ANSWER_TAIL_RE, "").trim();
+  return answer || null;
+}
+
+// ─── Compact summaries ───────────────────────────────────────────────────────
+
+/**
+ * Claude Code opens every compact summary with the same sentence and closes it
+ * with instructions to the model plus the transcript path. Like the harness
+ * injections, those repeat verbatim across sessions, so only the summary
+ * itself is kept.
+ */
+const COMPACT_HEAD_RE =
+  /^\s*This session is being continued from a previous conversation[^\n]*\n+(?:Summary:[ \t]*\n?)?/;
+const COMPACT_TAIL_RE =
+  /\s*(?:If you need specific details from before compaction|Continue the conversation from where it left off)[\s\S]*$/;
+
+export function compactSummaryText(text: string): string {
+  return text.replace(COMPACT_HEAD_RE, "").replace(COMPACT_TAIL_RE, "").trim();
+}
+
 // ─── Turn builder ────────────────────────────────────────────────────────────
 
 /**
@@ -123,11 +173,17 @@ function isToolResultRecord(blocks: ClaudeContentBlock[]): boolean {
  * Sidechain records (`isSidechain: true`) come from subagents running under a
  * turn, not from the conversation itself. They are skipped so a subagent's
  * output is not attributed to the user's exchange.
+ *
+ * A compact summary opens a turn of its own, without a prompt, so that
+ * detectLastRecapTurn() finds it; whatever the assistant writes before the
+ * next prompt belongs to that turn.
  */
 export function buildClaudeTurns(records: ClaudeRecord[]): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   let current: ConversationTurn | null = null;
   const aiParts: string[] = [];
+  /** tool_use ids of AskUserQuestion calls, to recognise their results */
+  const questionIds = new Set<string>();
 
   const flush = () => {
     if (!current) return;
@@ -145,7 +201,34 @@ export function buildClaudeTurns(records: ClaudeRecord[]): ConversationTurn[] {
     const blocks = blocksOf(rec);
 
     if (rec.type === "user") {
-      if (isToolResultRecord(blocks)) continue; // tool output, not a prompt
+      if (isToolResultRecord(blocks)) {
+        // Tool output, not a prompt — except the user's answer to a question
+        for (const b of blocks) {
+          if (b.type !== "tool_result") continue;
+          if (typeof b.tool_use_id !== "string" || !questionIds.has(b.tool_use_id)) continue;
+          const answer = askUserAnswerText(b.content);
+          if (answer && current) aiParts.push(`**User answered:** ${answer}`);
+        }
+        continue;
+      }
+
+      if (rec.isCompactSummary === true) {
+        const summary = compactSummaryText(textOf(blocks));
+        if (!summary) continue;
+        flush();
+        current = {
+          turnIndex: turns.length,
+          timestamp: typeof rec.timestamp === "string" ? rec.timestamp : "",
+          userMessage: "",
+          aiResponse: "",
+          modelId: "",
+          toolCalls: [],
+          // The <summary> block is what formatter.ts recognises as a compact
+          compactSummary: `<summary>\n${summary}\n</summary>`,
+        };
+        continue;
+      }
+
       const prompt = stripInjectedBlocks(textOf(blocks));
       if (!prompt) continue; // nothing left once injections are removed
 
@@ -163,6 +246,11 @@ export function buildClaudeTurns(records: ClaudeRecord[]): ConversationTurn[] {
     }
 
     // assistant — may arrive as several records per turn
+    for (const b of blocks) {
+      if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
+        questionIds.add(b.id);
+      }
+    }
     if (!current) continue; // assistant output before any prompt: ignore
 
     const text = textOf(blocks);

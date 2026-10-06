@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
+  askUserAnswerText,
   buildClaudeTurns,
   claudeSessionTitle,
+  compactSummaryText,
   stripInjectedBlocks,
 } from "./claude-formatter.js";
+import {
+  buildIndexableText,
+  buildLLMContext,
+  detectLastRecapTurn,
+} from "./formatter.js";
 import type { ClaudeRecord } from "./types.js";
 
 /**
@@ -214,6 +221,190 @@ describe("buildClaudeTurns", () => {
     expect(buildClaudeTurns([{ type: "ai-title", aiTitle: "iets" }])).toEqual(
       [],
     );
+  });
+});
+
+// The exact shapes Claude Code writes, taken from real session logs
+
+const COMPACT_TEXT = [
+  "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.",
+  "",
+  "Summary:",
+  "1. Primary Request and Intent:",
+  "   - alphatest herbaseren op release/8.1",
+  "",
+  "If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: C:\\Users\\x\\.claude\\projects\\p\\s.jsonl",
+  "Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary.",
+].join("\n");
+
+function compactSummary(): ClaudeRecord {
+  return {
+    type: "user",
+    isCompactSummary: true,
+    timestamp: "2026-10-02T16:10:09.903Z",
+    message: { role: "user", content: COMPACT_TEXT },
+  };
+}
+
+function askQuestion(id: string): ClaudeRecord {
+  return assistant([
+    {
+      type: "tool_use",
+      id,
+      name: "AskUserQuestion",
+      input: { questions: [{ question: "Hoe pakken we dit op?" }] },
+    },
+  ]);
+}
+
+function toolResult(id: string, content: unknown): ClaudeRecord {
+  return {
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: id, content }],
+    },
+  };
+}
+
+describe("compactSummaryText", () => {
+  it("keeps the summary and drops the boilerplate around it", () => {
+    expect(compactSummaryText(COMPACT_TEXT)).toBe(
+      "1. Primary Request and Intent:\n   - alphatest herbaseren op release/8.1",
+    );
+  });
+});
+
+describe("askUserAnswerText", () => {
+  it("keeps question and answer from the older wording", () => {
+    expect(
+      askUserAnswerText(
+        'Your questions have been answered: "Hoe pakken we dit op?"="Eerst alleen onderzoeken". You can now continue with these answers in mind.',
+      ),
+    ).toBe('"Hoe pakken we dit op?"="Eerst alleen onderzoeken"');
+  });
+
+  it("keeps question and answer from the newer wording", () => {
+    expect(
+      askUserAnswerText(
+        'The user answered: "Welke laag?"="In A7 zelf", "Wanneer?"="Nu". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.',
+      ),
+    ).toBe('"Welke laag?"="In A7 zelf", "Wanneer?"="Nu"');
+  });
+
+  it("accepts content as an array of text blocks", () => {
+    expect(
+      askUserAnswerText([
+        { type: "text", text: 'The user answered: "V?"="A". Read the answers carefully.' },
+      ]),
+    ).toBe('"V?"="A"');
+  });
+
+  it("returns null when the user dismissed the question", () => {
+    expect(
+      askUserAnswerText("The user doesn't want to proceed with this tool use."),
+    ).toBe(null);
+  });
+});
+
+describe("buildClaudeTurns — compact", () => {
+  const records = [
+    user("oude vraag"),
+    assistant([{ type: "text", text: "oud antwoord" }]),
+    compactSummary(),
+    assistant([{ type: "text", text: "verder na de compact" }]),
+    user("nieuwe vraag"),
+    assistant([{ type: "text", text: "nieuw antwoord" }]),
+  ];
+
+  it("moves the summary to compactSummary instead of reading it as a prompt", () => {
+    const turns = buildClaudeTurns(records);
+
+    expect(turns).toHaveLength(3);
+    expect(turns[1]?.userMessage).toBe("");
+    expect(turns[1]?.compactSummary).toContain("alphatest herbaseren");
+    expect(turns[1]?.aiResponse).toBe("verder na de compact");
+    expect(turns.some((t) => t.userMessage.includes("being continued"))).toBe(false);
+  });
+
+  it("is found by the shared recap detection", () => {
+    const turns = buildClaudeTurns(records);
+
+    expect(detectLastRecapTurn(turns)).toBe(1);
+    const context = buildLLMContext(turns);
+    expect(context).toContain("alphatest herbaseren");
+    expect(context).toContain("verder na de compact");
+    expect(context).not.toContain("oude vraag");
+  });
+
+  it("indexes the summary without its boilerplate", () => {
+    const text = buildIndexableText(buildClaudeTurns(records));
+
+    expect(text).toContain("alphatest herbaseren");
+    expect(text).toContain("oude vraag");
+    expect(text).not.toContain("being continued");
+    expect(text).not.toContain("read the full transcript");
+  });
+
+  it("finds a term that only appears after the compact in a session over the cap", () => {
+    const turns = buildClaudeTurns([
+      user("oude vraag"),
+      assistant([{ type: "text", text: "oud ".repeat(40_000) }]),
+      compactSummary(),
+      user("hoe gaat de dispatch?"),
+      assistant([{ type: "text", text: "lang ".repeat(40_000) }]),
+      user("besluit"),
+      assistant([{ type: "text", text: "alleen gefilterd opvragen" }]),
+    ]);
+    const text = buildIndexableText(turns);
+
+    expect(text).toContain("gefilterd");
+    expect(text).toContain("alphatest herbaseren");
+    expect(text).not.toContain("oude vraag");
+  });
+});
+
+describe("buildClaudeTurns — AskUserQuestion", () => {
+  it("keeps the answer, with its question, in the turn where it was given", () => {
+    const turns = buildClaudeTurns([
+      user("pak het issue op"),
+      askQuestion("q1"),
+      toolResult(
+        "q1",
+        'The user answered: "Hoe pakken we dit op?"="Alleen gefilterd opvragen". Read the answers carefully.',
+      ),
+      assistant([{ type: "text", text: "Dan doe ik dat." }]),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.aiResponse).toBe(
+      '**User answered:** "Hoe pakken we dit op?"="Alleen gefilterd opvragen"\n\nDan doe ik dat.',
+    );
+    expect(buildIndexableText(turns)).toContain("gefilterd");
+  });
+
+  it("still drops an ordinary tool_result in the same session", () => {
+    const turns = buildClaudeTurns([
+      user("lees en vraag"),
+      assistant([{ type: "tool_use", id: "r1", name: "Read", input: {} }]),
+      toolResult("r1", 'The user answered: "nep"="geen vraag"'),
+      askQuestion("q1"),
+      toolResult("q1", 'The user answered: "V?"="echt antwoord". Read the answers carefully.'),
+    ]);
+    const text = buildIndexableText(turns);
+
+    expect(text).toContain("echt antwoord");
+    expect(text).not.toContain("geen vraag");
+  });
+
+  it("drops a dismissed question", () => {
+    const turns = buildClaudeTurns([
+      user("vraag"),
+      askQuestion("q1"),
+      toolResult("q1", "The user doesn't want to proceed with this tool use."),
+    ]);
+
+    expect(turns[0]?.aiResponse).toBe("");
   });
 });
 
